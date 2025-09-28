@@ -1,42 +1,16 @@
-# Project Name
+# DynBufReader
 
-[![Rust](https://github.com/{username}/{project}/actions/workflows/rust.yml/badge.svg)](https://github.com/{username}/{project}/actions/workflows/rust.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Rust](https://github.com/viell-dev/dyn_buf_reader/actions/workflows/rust.yml/badge.svg)](https://github.com/viell-dev/dyn_buf_reader/actions/workflows/rust.yml)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+
+<!--
+TODO:
 [![Crates.io](https://img.shields.io/crates/v/{crate_name}.svg)](https://crates.io/crates/{crate_name})
 [![Docs.rs](https://docs.rs/{crate_name}/badge.svg)](https://docs.rs/{crate_name})
+-->
 
 ## Description
 
-Brief description of your project
+An alternative to `std::io::BufReader` with a dynamically sized buffer.
 
-## Getting Started
-
-```bash
-cargo build
-cargo test
-```
-
-## Installation
-
-```bash
-cargo add {crate_name}
-```
-
-## Usage
-
-```rust
-// Add a basic usage example here
-```
-
-## Features
-
-- Feature 1
-- Feature 2
-
-## Contributing
-
-[Contributions](CONTRIBUTING.md) are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+TODO: Write more stuff here
