@@ -488,15 +488,73 @@ mod tests {
     #[test]
     fn test_fill() {
         let mut buffer = Buffer::new();
+        let string = "Hello, World!";
 
-        // TODO
+        let remainder = CHUNK_SIZE % string.len();
+        let fills = CHUNK_SIZE / string.len();
+
+        assert!(remainder > 0);
+
+        // Repeatedly fill the buffer until it's almost full
+        for n in 1..=fills {
+            let cur = Cursor::new(string);
+            let read = buffer.fill(cur).unwrap();
+            let pos = buffer.pos();
+            let data = buffer.buf().get(pos..pos + read).unwrap();
+
+            assert_eq!(data, string.as_bytes());
+            assert_eq!(pos + read, n * string.len());
+
+            buffer.consume(read);
+        }
+
+        // Fill the last bit of space
+        let cur = Cursor::new(string);
+        let read = buffer.fill(cur).unwrap();
+        let pos = buffer.pos();
+        let data = buffer.buf().get(pos..pos + read).unwrap();
+        let fin = string.as_bytes().get(..remainder).unwrap();
+
+        assert_eq!(data, fin);
+        assert_eq!(buffer.len(), CHUNK_SIZE);
     }
 
     #[test]
     fn test_fill_amount() {
         let mut buffer = Buffer::new();
+        let string = "Hello, World!";
 
-        // TODO
+        let amount = 3 * CHUNK_SIZE;
+        let remainder = amount % string.len();
+        let fills = amount / string.len();
+
+        assert!(remainder > 0);
+
+        let repeated = string.repeat(fills + 1);
+        let cur = Cursor::new(repeated);
+
+        // Fill the requested amount
+        let total_read = buffer.fill_amount(cur, amount).unwrap();
+
+        assert_eq!(total_read, amount);
+        assert_eq!(buffer.len(), amount);
+        assert!(buffer.cap() >= amount);
+
+        // Verify the data is correct
+        for _ in 0..fills {
+            let pos = buffer.pos();
+            let data = buffer.buf().get(pos..pos + string.len()).unwrap();
+
+            assert_eq!(data, string.as_bytes());
+
+            buffer.consume(string.len());
+        }
+
+        // Verify the last bit of data
+        let pos = buffer.pos();
+        let data = buffer.buf().get(pos..pos + remainder).unwrap();
+        let fin = string.as_bytes().get(..remainder).unwrap();
+        assert_eq!(data, fin);
     }
 
     #[test]
