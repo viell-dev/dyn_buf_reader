@@ -48,9 +48,11 @@ impl Buffer {
     }
 
     /// Return a reference slice to the buffer
+    #[expect(clippy::indexing_slicing, reason = "The invariant makes it safe")]
     #[inline]
     pub fn buf(&self) -> &[u8] {
-        &self.buf
+        // We need to slice here in case the internal buffer is a bit larger.
+        &self.buf[..self.cap]
     }
 
     /// The capacity of the buffer
