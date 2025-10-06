@@ -1397,4 +1397,256 @@ mod tests {
         assert_eq!(buffer.len(), CHUNK_SIZE + 2); // CHUNK_SIZE - 1 + 3 bytes for '世'
         assert_eq!(buffer.cap(), 2 * CHUNK_SIZE);
     }
+
+    // Mock reader that returns an error after reading a specified number of bytes
+    struct ErrorReader {
+        data: Vec<u8>,
+        pos: usize,
+        error_at: usize,
+    }
+
+    impl ErrorReader {
+        fn new(data: Vec<u8>, error_at: usize) -> Self {
+            Self {
+                data,
+                pos: 0,
+                error_at,
+            }
+        }
+    }
+
+    impl Read for ErrorReader {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if self.pos >= self.error_at {
+                return Err(io::Error::new(io::ErrorKind::Other, "simulated read error"));
+            }
+
+            let remaining = self.data.len() - self.pos;
+            let to_read = cmp::min(buf.len(), remaining);
+            let to_read = cmp::min(to_read, self.error_at - self.pos);
+
+            if to_read == 0 {
+                return Ok(0);
+            }
+
+            buf[..to_read].copy_from_slice(&self.data[self.pos..self.pos + to_read]);
+            self.pos += to_read;
+            Ok(to_read)
+        }
+    }
+
+    #[test]
+    fn test_fill_error() {
+        let mut buffer = Buffer::new();
+        let data = b"Hello, World!".to_vec();
+        let mut reader = ErrorReader::new(data.clone(), 5);
+
+        // First read succeeds with 5 bytes
+        let result = buffer.fill(&mut reader);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 5);
+        assert_eq!(buffer.len(), 5);
+        assert_eq!(&buffer.buf()[..5], b"Hello");
+
+        // Second read should error
+        let result = buffer.fill(&mut reader);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::Other);
+        assert_eq!(buffer.len(), 5); // Length unchanged after error
+    }
+
+    #[test]
+    fn test_fill_error_immediate() {
+        let mut buffer = Buffer::new();
+        let data = b"Hello, World!".to_vec();
+        let mut reader = ErrorReader::new(data, 0);
+
+        // Should error immediately
+        let result = buffer.fill(&mut reader);
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::Other);
+        assert_eq!(buffer.len(), 0);
+    }
+
+    #[test]
+    fn test_fill_amount_error() {
+        let mut buffer = Buffer::new();
+        let data = b"Hello, World!".to_vec();
+        let mut reader = ErrorReader::new(data.clone(), 5);
+
+        // Request more than what we can read before error
+        let result = buffer.fill_amount(&mut reader, 100);
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::Other);
+        assert_eq!(buffer.len(), 5);
+        assert_eq!(&buffer.buf()[..5], b"Hello");
+    }
+
+    #[test]
+    fn test_fill_amount_error_immediate() {
+        let mut buffer = Buffer::new();
+        let data = b"Hello, World!".to_vec();
+        let mut reader = ErrorReader::new(data, 0);
+
+        // Should error immediately
+        let result = buffer.fill_amount(&mut reader, 100);
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::Other);
+        assert_eq!(buffer.len(), 0);
+    }
+
+    #[test]
+    fn test_fill_amount_error_after_growth() {
+        let mut buffer = Buffer::new();
+        let data = "a".repeat(2 * CHUNK_SIZE);
+        let error_at = CHUNK_SIZE + 10;
+        let mut reader = ErrorReader::new(data.into_bytes(), error_at);
+
+        // Request enough to trigger growth, then error
+        let result = buffer.fill_amount(&mut reader, 2 * CHUNK_SIZE);
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::Other);
+        assert_eq!(buffer.len(), error_at);
+    }
+
+    #[test]
+    fn test_fill_while_error() {
+        let mut buffer = Buffer::new();
+        let data = "aaaaaHello".to_string();
+        let mut reader = ErrorReader::new(data.into_bytes(), 3);
+
+        // Should read 3 bytes then error
+        let result = buffer.fill_while(&mut reader, |c| c == 'a');
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::Other);
+        assert_eq!(buffer.len(), 3);
+        assert_eq!(buffer.as_str().unwrap(), "aaa");
+    }
+
+    #[test]
+    fn test_fill_while_error_immediate() {
+        let mut buffer = Buffer::new();
+        let data = "aaaaaHello".to_string();
+        let mut reader = ErrorReader::new(data.into_bytes(), 0);
+
+        // Should error immediately
+        let result = buffer.fill_while(&mut reader, |c| c == 'a');
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::Other);
+        assert_eq!(buffer.len(), 0);
+    }
+
+    #[test]
+    fn test_fill_while_error_across_chunk_boundary() {
+        let mut buffer = Buffer::new();
+        let prefix = "a".repeat(CHUNK_SIZE + 10);
+        let text = format!("{prefix}b");
+        let error_at = CHUNK_SIZE + 5;
+        let mut reader = ErrorReader::new(text.into_bytes(), error_at);
+
+        // Should read past chunk boundary then error
+        let result = buffer.fill_while(&mut reader, |c| c == 'a');
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::Other);
+        assert_eq!(buffer.len(), error_at);
+        assert!(buffer.cap() >= 2 * CHUNK_SIZE);
+    }
+
+    #[test]
+    fn test_fill_while_error_before_predicate_breaks() {
+        let mut buffer = Buffer::new();
+        let data = "aaaaaHello".to_string();
+        let mut reader = ErrorReader::new(data.into_bytes(), 5);
+
+        // Should read 5 'a's (matching predicate), then error on next read
+        let result = buffer.fill_while(&mut reader, |c| c == 'a');
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::Other);
+        assert_eq!(buffer.len(), 5);
+        assert_eq!(buffer.as_str().unwrap(), "aaaaa");
+    }
+
+    #[test]
+    fn test_fill_until_error() {
+        let mut buffer = Buffer::new();
+        let data = "Hello\nWorld".to_string();
+        let mut reader = ErrorReader::new(data.into_bytes(), 3);
+
+        // Should read 3 bytes then error
+        let result = buffer.fill_until(&mut reader, '\n');
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::Other);
+        assert_eq!(buffer.len(), 3);
+        assert_eq!(buffer.as_str().unwrap(), "Hel");
+    }
+
+    #[test]
+    fn test_fill_until_error_immediate() {
+        let mut buffer = Buffer::new();
+        let data = "Hello\nWorld".to_string();
+        let mut reader = ErrorReader::new(data.into_bytes(), 0);
+
+        // Should error immediately
+        let result = buffer.fill_until(&mut reader, '\n');
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::Other);
+        assert_eq!(buffer.len(), 0);
+    }
+
+    #[test]
+    fn test_fill_until_error_before_delimiter() {
+        let mut buffer = Buffer::new();
+        let data = "Hello\nWorld".to_string();
+        let mut reader = ErrorReader::new(data.into_bytes(), 5);
+
+        // Should read 5 bytes (before '\n'), then error
+        let result = buffer.fill_until(&mut reader, '\n');
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::Other);
+        assert_eq!(buffer.len(), 5);
+        assert_eq!(buffer.as_str().unwrap(), "Hello");
+    }
+
+    #[test]
+    fn test_fill_until_error_across_chunk_boundary() {
+        let mut buffer = Buffer::new();
+        let prefix = "a".repeat(CHUNK_SIZE + 10);
+        let text = format!("{prefix}\n");
+        let error_at = CHUNK_SIZE + 5;
+        let mut reader = ErrorReader::new(text.into_bytes(), error_at);
+
+        // Should read past chunk boundary then error
+        let result = buffer.fill_until(&mut reader, '\n');
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::Other);
+        assert_eq!(buffer.len(), error_at);
+        assert!(buffer.cap() >= 2 * CHUNK_SIZE);
+    }
+
+    #[test]
+    fn test_fill_until_error_with_multibyte_delimiter() {
+        let mut buffer = Buffer::new();
+        let data = "Hello世World".to_string();
+        let mut reader = ErrorReader::new(data.into_bytes(), 7);
+
+        // Should read 7 bytes (before '世'), then error
+        let result = buffer.fill_until(&mut reader, '世');
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::Other);
+        assert_eq!(buffer.len(), 7);
+        assert_eq!(buffer.as_str().unwrap(), "Hello");
+    }
 }
