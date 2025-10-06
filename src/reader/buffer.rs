@@ -452,6 +452,8 @@ impl Buffer {
             // Get remaining amount to read.
             let remaining = amt - total_bytes_read;
 
+            // Note regarding `CHUNK_SIZE / 2`: This should align with a common page size by the
+            // very definition of how `CHUNK_SIZE` is set and what values are valid for it.
             if available < CHUNK_SIZE / 2 && remaining >= available {
                 // We've hit a point where growing would be more optimal than just filling the
                 // available space and the available space is too small.
@@ -742,8 +744,12 @@ impl Default for Buffer {
 }
 
 #[cfg(test)]
-#[expect(clippy::unwrap_used, reason = "Unwrap is okay in tests")]
-#[expect(clippy::indexing_slicing, reason = "Indexing slicing is okay in tests")]
+#[expect(
+    clippy::unwrap_used,
+    clippy::indexing_slicing,
+    clippy::arithmetic_side_effects,
+    reason = "Okay in tests"
+)]
 mod tests {
     use std::io::Cursor;
 
@@ -780,30 +786,63 @@ mod tests {
 
     #[test]
     fn test_buf() {
-        let buffer = Buffer::new();
+        let mut buffer = Buffer::new();
 
         assert_eq!(buffer.buf(), &[0; CHUNK_SIZE]);
+
+        // inject some data.
+        buffer.buf[0..5].copy_from_slice(b"Hello");
+
+        assert_eq!(&buffer.buf()[0..5], b"Hello");
     }
 
     #[test]
     fn test_cap() {
-        let buffer = Buffer::new();
+        let mut buffer = Buffer::new();
 
         assert_eq!(buffer.cap(), CHUNK_SIZE);
+
+        // Simulate a bigger capacity
+        buffer.cap = 2 * CHUNK_SIZE;
+
+        assert_eq!(buffer.cap(), 2 * CHUNK_SIZE);
     }
 
     #[test]
     fn test_len() {
-        let buffer = Buffer::new();
+        let mut buffer = Buffer::new();
 
         assert_eq!(buffer.len(), 0);
+
+        // Simulate existing data.
+        buffer.len = 50;
+
+        assert_eq!(buffer.len(), 50);
     }
 
     #[test]
     fn test_pos() {
-        let buffer = Buffer::new();
+        let mut buffer = Buffer::new();
 
         assert_eq!(buffer.pos(), 0);
+
+        // Simulate consumed data.
+        buffer.pos = 50;
+
+        // technically the invariant is now broken, but it doesn't matter for the test
+        assert_eq!(buffer.pos(), 50);
+    }
+
+    #[test]
+    fn test_is_empty() {
+        let mut buffer = Buffer::new();
+
+        assert!(buffer.is_empty());
+
+        // Simulate existing data.
+        buffer.len = 50;
+
+        assert!(!buffer.is_empty());
     }
 
     #[test]
@@ -826,7 +865,15 @@ mod tests {
     fn test_consume() {
         let mut buffer = Buffer::new();
 
-        // Simulate there being data.
+        // Consume nothing or try to consume on empty
+        buffer.consume(0);
+        buffer.consume(10);
+
+        // Should still be empty
+        assert_eq!(buffer.len, 0);
+        assert_eq!(buffer.pos, 0);
+
+        // Simulate there being data
         buffer.len = 100;
 
         // Consume some bytes
@@ -835,11 +882,34 @@ mod tests {
         // Buffer state should match
         assert_eq!(buffer.len, 100);
         assert_eq!(buffer.pos, 10);
+
+        // Consume the remaining bytes
+        buffer.consume(90);
+
+        // Buffer state should match
+        assert_eq!(buffer.len, 100);
+        assert_eq!(buffer.pos, 100);
+
+        // Simulate there being more data
+        buffer.len = 150;
+
+        // Consume more bytes than there are
+        buffer.consume(100);
+
+        // Buffer state should match
+        assert_eq!(buffer.len, 150);
+        assert_eq!(buffer.pos, 150);
     }
 
     #[test]
     fn test_compact() {
         let mut buffer = Buffer::new();
+
+        // Compact should be a no-op
+        buffer.compact();
+
+        assert_eq!(buffer.len, 0);
+        assert_eq!(buffer.pos, 0);
 
         // Simulate there being data.
         buffer.pos = 10;
@@ -851,188 +921,98 @@ mod tests {
         // Buffer state should match
         assert_eq!(buffer.len, 90);
         assert_eq!(buffer.pos, 0);
+
+        // Simulate all data being consumed (pos == len)
+        buffer.pos = 90;
+
+        // Compact the data
+        buffer.compact();
+
+        // Should result in empty buffer
+        assert_eq!(buffer.len, 0);
+        assert_eq!(buffer.pos, 0);
     }
 
     #[test]
-    fn test_cap_down_zero() {
+    fn test_cap_down() {
         assert_eq!(Buffer::cap_down(0), CHUNK_SIZE);
-    }
-
-    #[test]
-    fn test_cap_down_below_chunk() {
         assert_eq!(Buffer::cap_down(CHUNK_SIZE - 1), CHUNK_SIZE);
-    }
-
-    #[test]
-    fn test_cap_down_at_chunk() {
         assert_eq!(Buffer::cap_down(CHUNK_SIZE), CHUNK_SIZE);
-    }
-
-    #[test]
-    fn test_cap_down_above_chunk() {
         assert_eq!(Buffer::cap_down(CHUNK_SIZE + 1), CHUNK_SIZE);
-    }
-
-    #[test]
-    fn test_cap_down_double_chunk() {
         assert_eq!(Buffer::cap_down(2 * CHUNK_SIZE + 1), 2 * CHUNK_SIZE);
         assert_eq!(Buffer::cap_down(2 * CHUNK_SIZE), 2 * CHUNK_SIZE);
-    }
-
-    #[test]
-    fn test_cap_down_large_multiples() {
         assert_eq!(Buffer::cap_down(8 * CHUNK_SIZE + 1), 8 * CHUNK_SIZE);
         assert_eq!(Buffer::cap_down(32 * CHUNK_SIZE + 1), 32 * CHUNK_SIZE);
         assert_eq!(Buffer::cap_down(128 * CHUNK_SIZE + 1), 128 * CHUNK_SIZE);
-    }
-
-    #[test]
-    fn test_cap_down_max() {
         assert_eq!(Buffer::cap_down(usize::MAX), PRACTICAL_MAX_SIZE);
     }
 
     #[test]
-    fn test_cap_up_zero() {
+    fn test_cap_up() {
         assert_eq!(Buffer::cap_up(0), CHUNK_SIZE);
-    }
-
-    #[test]
-    fn test_cap_up_below_chunk() {
         assert_eq!(Buffer::cap_up(CHUNK_SIZE - 1), CHUNK_SIZE);
-    }
-
-    #[test]
-    fn test_cap_up_at_chunk() {
         assert_eq!(Buffer::cap_up(CHUNK_SIZE), CHUNK_SIZE);
-    }
-
-    #[test]
-    fn test_cap_up_above_chunk() {
         assert_eq!(Buffer::cap_up(CHUNK_SIZE + 1), 2 * CHUNK_SIZE);
-    }
-
-    #[test]
-    fn test_cap_up_double_chunk() {
         assert_eq!(Buffer::cap_up(2 * CHUNK_SIZE - 1), 2 * CHUNK_SIZE);
         assert_eq!(Buffer::cap_up(2 * CHUNK_SIZE), 2 * CHUNK_SIZE);
-    }
-
-    #[test]
-    fn test_cap_up_large_multiples() {
         assert_eq!(Buffer::cap_up(8 * CHUNK_SIZE - 1), 8 * CHUNK_SIZE);
         assert_eq!(Buffer::cap_up(32 * CHUNK_SIZE - 1), 32 * CHUNK_SIZE);
         assert_eq!(Buffer::cap_up(128 * CHUNK_SIZE - 1), 128 * CHUNK_SIZE);
-    }
-
-    #[test]
-    fn test_cap_up_max() {
         assert_eq!(Buffer::cap_up(usize::MAX), PRACTICAL_MAX_SIZE);
     }
 
     #[test]
-    fn test_grow_to_2x() {
+    fn test_grow() {
         let mut buffer = Buffer::new();
+
         buffer.grow();
         assert_eq!(buffer.cap(), 2 * CHUNK_SIZE);
-    }
 
-    #[test]
-    fn test_grow_to_4x() {
-        let mut buffer = Buffer::new();
-        buffer.grow();
         buffer.grow();
         assert_eq!(buffer.cap(), 4 * CHUNK_SIZE);
-    }
 
-    #[test]
-    fn test_grow_to_8x() {
-        let mut buffer = Buffer::new();
-        buffer.grow();
-        buffer.grow();
         buffer.grow();
         assert_eq!(buffer.cap(), 8 * CHUNK_SIZE);
-    }
 
-    #[test]
-    fn test_grow_to_16x() {
-        let mut buffer = Buffer::new();
-        buffer.grow();
-        buffer.grow();
-        buffer.grow();
         buffer.grow();
         assert_eq!(buffer.cap(), 16 * CHUNK_SIZE);
-    }
 
-    #[test]
-    fn test_grow_to_32x() {
-        let mut buffer = Buffer::new();
-        buffer.grow();
-        buffer.grow();
-        buffer.grow();
-        buffer.grow();
         buffer.grow();
         assert_eq!(buffer.cap(), 32 * CHUNK_SIZE);
     }
 
     #[test]
-    fn test_shrink_from_32x_to_16x() {
+    fn test_shrink() {
         let mut buffer = Buffer::with_capacity(32 * CHUNK_SIZE);
+
         buffer.len = 15 * CHUNK_SIZE + 1;
         buffer.shrink();
         assert_eq!(buffer.cap(), 16 * CHUNK_SIZE);
-    }
 
-    #[test]
-    fn test_shrink_from_32x_to_8x() {
-        let mut buffer = Buffer::with_capacity(32 * CHUNK_SIZE);
         buffer.len = 7 * CHUNK_SIZE + 1;
         buffer.shrink();
         assert_eq!(buffer.cap(), 8 * CHUNK_SIZE);
-    }
 
-    #[test]
-    fn test_shrink_from_32x_to_6x() {
-        let mut buffer = Buffer::with_capacity(32 * CHUNK_SIZE);
         buffer.len = 6 * CHUNK_SIZE - 1;
         buffer.shrink();
         assert_eq!(buffer.cap(), 6 * CHUNK_SIZE);
-    }
 
-    #[test]
-    fn test_shrink_from_32x_to_4x() {
-        let mut buffer = Buffer::with_capacity(32 * CHUNK_SIZE);
         buffer.len = 3 * CHUNK_SIZE + 1;
         buffer.shrink();
         assert_eq!(buffer.cap(), 4 * CHUNK_SIZE);
-    }
 
-    #[test]
-    fn test_shrink_from_32x_to_3x() {
-        let mut buffer = Buffer::with_capacity(32 * CHUNK_SIZE);
         buffer.len = 2 * CHUNK_SIZE + 1;
         buffer.shrink();
         assert_eq!(buffer.cap(), 3 * CHUNK_SIZE);
-    }
 
-    #[test]
-    fn test_shrink_from_32x_to_2x() {
-        let mut buffer = Buffer::with_capacity(32 * CHUNK_SIZE);
         buffer.len = 2 * CHUNK_SIZE;
         buffer.shrink();
         assert_eq!(buffer.cap(), 2 * CHUNK_SIZE);
-    }
 
-    #[test]
-    fn test_shrink_from_32x_to_1x() {
-        let mut buffer = Buffer::with_capacity(32 * CHUNK_SIZE);
         buffer.len = CHUNK_SIZE;
         buffer.shrink();
         assert_eq!(buffer.cap(), CHUNK_SIZE);
-    }
 
-    #[test]
-    fn test_shrink_from_32x_when_empty() {
-        let mut buffer = Buffer::with_capacity(32 * CHUNK_SIZE);
         buffer.len = 0;
         buffer.shrink();
         assert_eq!(buffer.cap(), CHUNK_SIZE);
@@ -1180,6 +1160,52 @@ mod tests {
     }
 
     #[test]
+    fn test_align_pos_to_char_on_char_boundary() {
+        let mut buffer = Buffer::new();
+        let text = "Hello, 世界!";
+        let cur = Cursor::new(text);
+        buffer.fill(cur).unwrap();
+        // Position 7 is on a character boundary (start of '世')
+        let aligned = buffer.align_pos_to_char(7);
+        assert_eq!(aligned, 7);
+    }
+
+    #[test]
+    fn test_align_pos_to_char_middle_of_multibyte() {
+        let mut buffer = Buffer::new();
+        let text = "Hello, 世界!";
+        let cur = Cursor::new(text);
+        buffer.fill(cur).unwrap();
+        // "Hello, " = 7 bytes, '世' is 3 bytes (7-9), '界' is 3 bytes (10-12)
+        // Position 8 is in the middle of '世', should align to start of '界' at 10
+        let aligned = buffer.align_pos_to_char(8);
+        assert_eq!(aligned, 10);
+    }
+
+    #[test]
+    fn test_align_pos_to_char_beyond_len() {
+        let mut buffer = Buffer::new();
+        let text = "Hello";
+        let cur = Cursor::new(text);
+        buffer.fill(cur).unwrap();
+        // Position beyond len should clamp to len
+        let aligned = buffer.align_pos_to_char(100);
+        assert_eq!(aligned, 5);
+    }
+
+    #[test]
+    fn test_align_pos_to_char_before_pos() {
+        let mut buffer = Buffer::new();
+        let text = "Hello, World!";
+        let cur = Cursor::new(text);
+        buffer.fill(cur).unwrap();
+        buffer.consume(5);
+        // Trying to align before current pos should clamp to pos
+        let aligned = buffer.align_pos_to_char(2);
+        assert_eq!(aligned, 5);
+    }
+
+    #[test]
     fn test_fill_while_basic() {
         let mut buffer = Buffer::new();
         let text = "aaaaaHello";
@@ -1286,6 +1312,25 @@ mod tests {
         assert_eq!(read, CHUNK_SIZE - 1);
         assert_eq!(buffer.len(), CHUNK_SIZE + 2); // CHUNK_SIZE - 1 + 3 bytes for '世'
         assert_eq!(buffer.cap(), 2 * CHUNK_SIZE);
+    }
+
+    #[test]
+    fn test_fill_while_with_existing_data() {
+        let mut buffer = Buffer::new();
+        let text1 = "aaaaa";
+        let cur1 = Cursor::new(text1);
+        buffer.fill(cur1).unwrap();
+        buffer.consume(2); // Consume 2 'a's
+
+        let text2 = "aaHello";
+        let cur2 = Cursor::new(text2);
+
+        // Should read from existing position
+        let read = buffer.fill_while(cur2, |c| c == 'a').unwrap();
+
+        // Should count the 3 remaining 'a's from first fill + 2 'a's from second fill = 5
+        assert_eq!(read, 5);
+        assert_eq!(buffer.as_str().unwrap(), "aaaaaHello");
     }
 
     #[test]
@@ -1398,6 +1443,38 @@ mod tests {
         assert_eq!(buffer.cap(), 2 * CHUNK_SIZE);
     }
 
+    #[test]
+    fn test_fill_until_with_existing_data() {
+        let mut buffer = Buffer::new();
+        let text1 = "Hello";
+        let cur1 = Cursor::new(text1);
+        buffer.fill(cur1).unwrap();
+        buffer.consume(2); // Consume "He"
+
+        let text2 = "llo\nWorld";
+        let cur2 = Cursor::new(text2);
+
+        // Should read from existing position and find delimiter
+        let read = buffer.fill_until(cur2, '\n').unwrap();
+
+        // Should count remaining "llo" (3) + new "llo\n" (4) = 7
+        assert_eq!(read, 7);
+        assert_eq!(buffer.as_str().unwrap(), "llollo\nWorld");
+    }
+
+    #[test]
+    fn test_fill_until_immediate_delimiter() {
+        let mut buffer = Buffer::new();
+        let text = "\nWorld";
+        let cur = Cursor::new(text);
+
+        let read = buffer.fill_until(cur, '\n').unwrap();
+
+        // Should find delimiter immediately
+        assert_eq!(read, 1);
+        assert_eq!(buffer.as_str().unwrap(), "\nWorld");
+    }
+
     // Mock reader that returns an error after reading a specified number of bytes
     struct ErrorReader {
         data: Vec<u8>,
@@ -1418,7 +1495,7 @@ mod tests {
     impl Read for ErrorReader {
         fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
             if self.pos >= self.error_at {
-                return Err(io::Error::new(io::ErrorKind::Other, "simulated read error"));
+                return Err(io::Error::other("simulated read error"));
             }
 
             let remaining = self.data.len() - self.pos;
