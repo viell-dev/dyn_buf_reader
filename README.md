@@ -14,3 +14,10 @@ TODO:
 An alternative to `std::io::BufReader` with a dynamically sized buffer.
 
 TODO: Write more stuff here
+
+## License
+
+Dual-licensed under your choice of:
+
+- GNU General Public License v3.0 or later ([COPYING.md](COPYING.md))
+- Apache License 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
