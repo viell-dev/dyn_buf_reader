@@ -1,6 +1,7 @@
 # DynBufReader
 
 [![Rust](https://github.com/viell-dev/dyn_buf_reader/actions/workflows/rust.yml/badge.svg)](https://github.com/viell-dev/dyn_buf_reader/actions/workflows/rust.yml)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 <!--
 TODO:
@@ -13,3 +14,7 @@ TODO:
 An alternative to `std::io::BufReader` with a dynamically sized buffer.
 
 TODO: Write more stuff here
+
+## License
+
+Licensed under the GNU General Public License v3.0 ([COPYING.md](COPYING.md))

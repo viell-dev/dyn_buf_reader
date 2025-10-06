@@ -2,6 +2,7 @@
 name = "dyn_buf_reader"
 version = "0.1.0"
 edition = "2024"
+license = "GPL-3.0"
 rust-version = "1.87.0"
 
 [lints.rust]
