@@ -1,4 +1,4 @@
-mod buffer;
+pub mod buffer;
 
 use crate::DynBufRead;
 use crate::constants::{CHUNK_SIZE, DEFAULT_MAX_SIZE, PRACTICAL_MAX_SIZE};
