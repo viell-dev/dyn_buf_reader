@@ -368,6 +368,7 @@ impl Buffer {
         let next = Self::cap_down(self.len + CHUNK_SIZE - 1);
 
         self.buf.truncate(next);
+        self.buf.shrink_to(next);
         self.cap = next;
     }
 
@@ -988,18 +989,28 @@ mod tests {
 
         buffer.grow();
         assert_eq!(buffer.cap(), 2 * CHUNK_SIZE);
+        assert!(buffer.buf.capacity() >= buffer.cap());
+        assert!(buffer.buf.capacity() <= buffer.cap() + CHUNK_SIZE);
 
         buffer.grow();
         assert_eq!(buffer.cap(), 4 * CHUNK_SIZE);
+        assert!(buffer.buf.capacity() >= buffer.cap());
+        assert!(buffer.buf.capacity() <= buffer.cap() + CHUNK_SIZE);
 
         buffer.grow();
         assert_eq!(buffer.cap(), 8 * CHUNK_SIZE);
+        assert!(buffer.buf.capacity() >= buffer.cap());
+        assert!(buffer.buf.capacity() <= buffer.cap() + CHUNK_SIZE);
 
         buffer.grow();
         assert_eq!(buffer.cap(), 16 * CHUNK_SIZE);
+        assert!(buffer.buf.capacity() >= buffer.cap());
+        assert!(buffer.buf.capacity() <= buffer.cap() + CHUNK_SIZE);
 
         buffer.grow();
         assert_eq!(buffer.cap(), 32 * CHUNK_SIZE);
+        assert!(buffer.buf.capacity() >= buffer.cap());
+        assert!(buffer.buf.capacity() <= buffer.cap() + CHUNK_SIZE);
     }
 
     #[test]
@@ -1009,34 +1020,50 @@ mod tests {
         buffer.len = 15 * CHUNK_SIZE + 1;
         buffer.shrink();
         assert_eq!(buffer.cap(), 16 * CHUNK_SIZE);
+        assert!(buffer.buf.capacity() >= buffer.cap());
+        assert!(buffer.buf.capacity() <= buffer.cap() + CHUNK_SIZE);
 
         buffer.len = 7 * CHUNK_SIZE + 1;
         buffer.shrink();
         assert_eq!(buffer.cap(), 8 * CHUNK_SIZE);
+        assert!(buffer.buf.capacity() >= buffer.cap());
+        assert!(buffer.buf.capacity() <= buffer.cap() + CHUNK_SIZE);
 
         buffer.len = 6 * CHUNK_SIZE - 1;
         buffer.shrink();
         assert_eq!(buffer.cap(), 6 * CHUNK_SIZE);
+        assert!(buffer.buf.capacity() >= buffer.cap());
+        assert!(buffer.buf.capacity() <= buffer.cap() + CHUNK_SIZE);
 
         buffer.len = 3 * CHUNK_SIZE + 1;
         buffer.shrink();
         assert_eq!(buffer.cap(), 4 * CHUNK_SIZE);
+        assert!(buffer.buf.capacity() >= buffer.cap());
+        assert!(buffer.buf.capacity() <= buffer.cap() + CHUNK_SIZE);
 
         buffer.len = 2 * CHUNK_SIZE + 1;
         buffer.shrink();
         assert_eq!(buffer.cap(), 3 * CHUNK_SIZE);
+        assert!(buffer.buf.capacity() >= buffer.cap());
+        assert!(buffer.buf.capacity() <= buffer.cap() + CHUNK_SIZE);
 
         buffer.len = 2 * CHUNK_SIZE;
         buffer.shrink();
         assert_eq!(buffer.cap(), 2 * CHUNK_SIZE);
+        assert!(buffer.buf.capacity() >= buffer.cap());
+        assert!(buffer.buf.capacity() <= buffer.cap() + CHUNK_SIZE);
 
         buffer.len = CHUNK_SIZE;
         buffer.shrink();
         assert_eq!(buffer.cap(), CHUNK_SIZE);
+        assert!(buffer.buf.capacity() >= buffer.cap());
+        assert!(buffer.buf.capacity() <= buffer.cap() + CHUNK_SIZE);
 
         buffer.len = 0;
         buffer.shrink();
         assert_eq!(buffer.cap(), CHUNK_SIZE);
+        assert!(buffer.buf.capacity() >= buffer.cap());
+        assert!(buffer.buf.capacity() <= buffer.cap() + CHUNK_SIZE);
     }
 
     #[test]
