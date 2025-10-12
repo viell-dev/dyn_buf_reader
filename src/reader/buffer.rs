@@ -121,11 +121,11 @@ impl Buffer {
         }
     }
 
-    /// Returns a reference to the entire buffer contents up to capacity.
+    /// Returns a reference to the buffer contents from the beginning up to the current length.
     ///
-    /// This returns a slice of the internal buffer from index 0 to [`cap()`](Self::cap),
-    /// which includes both consumed and unconsumed data. Use with [`pos()`](Self::pos) and
-    /// [`len()`](Self::len) to access specific regions.
+    /// This returns a slice of the internal buffer from index 0 to [`len()`](Self::len),
+    /// which includes both consumed and unconsumed data. Use with [`pos()`](Self::pos) to access
+    /// either unconsumed `pos()..` or consumed `..pos()` data as needed.
     ///
     /// # Examples
     ///
@@ -137,13 +137,13 @@ impl Buffer {
     /// buffer.fill(&mut reader).unwrap();
     ///
     /// let slice = buffer.buf();
-    /// // Access unconsumed data: &slice[buffer.pos()..buffer.len()]
+    /// assert_eq!(slice.len(), 13); // Full data length
+    /// // Access unconsumed data: &slice[buffer.pos()..]
     /// ```
     #[expect(clippy::indexing_slicing, reason = "The invariant makes it safe")]
     #[inline]
     pub fn buf(&self) -> &[u8] {
-        // We need to slice here in case the internal buffer is a bit larger.
-        &self.buf[..self.cap]
+        &self.buf[..self.len]
     }
 
     /// Returns the current capacity of the buffer in bytes.
@@ -810,12 +810,15 @@ mod tests {
     fn test_buf() {
         let mut buffer = Buffer::new();
 
-        assert_eq!(buffer.buf(), &[0; CHUNK_SIZE]);
+        // Empty buffer returns empty slice
+        assert_eq!(buffer.buf(), &[]);
 
-        // inject some data.
+        // Inject some data
         buffer.buf[0..5].copy_from_slice(b"Hello");
+        buffer.len = 5;
 
-        assert_eq!(&buffer.buf()[0..5], b"Hello");
+        // Now buf() returns the data
+        assert_eq!(buffer.buf(), b"Hello");
     }
 
     #[test]
