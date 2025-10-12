@@ -17,7 +17,8 @@ TODO: Write more stuff here
 
 ## License
 
-Dual-licensed under your choice of:
+Multi-licensed under your choice of:
 
 - GNU General Public License v3.0 or later ([COPYING.md](COPYING.md))
 - Apache License 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- The MIT License ([LICENSE-MIT](LICENSE-MIT))
