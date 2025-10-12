@@ -1480,7 +1480,7 @@ mod tests {
 
         // Should count remaining "llo" (3) + new "llo\n" (4) = 7
         assert_eq!(read, 7);
-        assert_eq!(buffer.as_str().unwrap(), "llollo\nWorld");
+        assert_eq!(buffer.as_str().unwrap(), "llollo\nWorld"); // spellchecker:ignore llollo
     }
 
     #[test]

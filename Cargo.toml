@@ -2,8 +2,8 @@
 name = "dyn_buf_reader"
 version = "0.1.0"
 edition = "2024"
-license = "GPL-3.0-or-later OR Apache-2.0"
-repository = "https://github.com/viell-dev/enhanced-parsers"
+license = "GPL-3.0-or-later OR Apache-2.0 OR MIT"
+repository = "https://github.com/viell-dev/dyn_buf_reader"
 rust-version = "1.87.0"
 
 [lints.rust]
