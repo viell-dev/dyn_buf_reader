@@ -431,7 +431,7 @@ impl Buffer {
     /// let data = vec![0u8; 3 * CHUNK_SIZE];
     /// let mut reader = Cursor::new(data);
     /// let bytes_read = buffer.fill_amount(&mut reader, 3 * CHUNK_SIZE).unwrap();
-    /// assert_eq!(bytes_read, 3 * CHUNK_SIZE);
+    /// assert!(bytes_read >= 3 * CHUNK_SIZE);
     /// ```
     ///
     /// # Errors
@@ -467,27 +467,13 @@ impl Buffer {
                 }
             }
 
-            // Get potentially updated available space.
-            let available = self.cap - self.len;
-
-            let bytes_read = if available >= remaining {
-                // We have enough space, so just read the requested amount.
-                match reader.read(&mut self.buf[self.len..self.len + remaining]) {
+            // Fill all available space
+            let bytes_read = match reader.read(&mut self.buf[self.len..self.cap]) {
                     Err(e) => {
                         self.shrink();
                         return Err(e);
                     }
                     Ok(r) => r,
-                }
-            } else {
-                // We don't have enough space, so just fill the space we have.
-                match reader.read(&mut self.buf[self.len..self.cap]) {
-                    Err(e) => {
-                        self.shrink();
-                        return Err(e);
-                    }
-                    Ok(r) => r,
-                }
             };
 
             // Increase the length by the number of bytes read.
@@ -1120,8 +1106,8 @@ mod tests {
         // Fill the requested amount
         let total_read = buffer.fill_amount(cur, amount).unwrap();
 
-        assert_eq!(total_read, amount);
-        assert_eq!(buffer.len(), amount);
+        assert!(total_read >= amount);
+        assert!(buffer.len() >= amount);
         assert!(buffer.cap() >= amount);
 
         // Verify the data is correct
