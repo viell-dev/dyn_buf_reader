@@ -4,7 +4,7 @@ use crate::DynBufRead;
 use crate::constants::{CHUNK_SIZE, DEFAULT_MAX_SIZE, PRACTICAL_MAX_SIZE};
 use buffer::Buffer;
 use std::cmp;
-use std::io::{self, Read};
+use std::io::{self, BufRead, Read};
 
 pub struct DynBufReader<R: ?Sized> {
     buffer: Buffer,
@@ -61,9 +61,9 @@ impl<R: Read + ?Sized> Read for DynBufReader<R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if self.buffer.pos() >= self.buffer.len() {
             debug_assert!(self.buffer.pos() == self.buffer.len());
-            // We've consumed all the data we have.
+            // We've consumed all the data we have
 
-            // Read at least the requested amount of data.
+            // Read at least the requested amount of data
             let _ = self.buffer.fill_amount(&mut self.reader, buf.len())?;
         }
 
@@ -89,6 +89,33 @@ impl<R: Read + ?Sized> Read for DynBufReader<R> {
 
         // Return the number of read bytes
         Ok(bytes_read)
+    }
+}
+
+impl<R: Read + ?Sized> BufRead for DynBufReader<R> {
+    fn fill_buf(&mut self) -> io::Result<&[u8]> {
+        if self.buffer.pos() >= self.buffer.len() {
+            debug_assert!(self.buffer.pos() == self.buffer.len());
+            // We've consumed all the data we have
+
+            if self.buffer.len() >= self.buffer.cap() {
+                debug_assert!(self.buffer.len() == self.buffer.cap());
+                // The buffer is full
+
+                // Try to grow the buffer
+                self.grow();
+            }
+
+            // Read to fill the internal buffer
+            let _ = self.buffer.fill(&mut self.reader)?;
+        }
+
+        // Return buffered data
+        Ok(&self.buffer.buf()[self.buffer.pos()..])
+    }
+
+    fn consume(&mut self, amt: usize) {
+        self.buffer.consume(amt);
     }
 }
 
