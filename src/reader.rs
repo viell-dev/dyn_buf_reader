@@ -62,11 +62,11 @@ impl<R: Read + ?Sized> Read for DynBufReader<R> {
             debug_assert!(self.buffer.pos() == self.buffer.len());
             // We've consumed all the data we have
 
-            // Cap the fill amount to respect max_size
+            // Cap the fill amount to respect max_capacity
             let max_allowed = self.max_capacity.saturating_sub(self.buffer.len());
             let capped_amt = buf.len().min(max_allowed);
 
-            // Read at least the requested amount of data (up to max_size)
+            // Read at least the requested amount of data (up to max_capacity)
             let _ = self.buffer.fill_amount(&mut self.reader, capped_amt)?;
         }
 
@@ -124,10 +124,672 @@ impl<R: Read + ?Sized> BufRead for DynBufReader<R> {
 }
 
 impl<R: Read + ?Sized> DynBufRead for DynBufReader<R> {
-    // TODO
+    /* TODO: Add aliases like this, I guess:
+    fn consume(&mut self, amt: usize) {
+        self.consume(amt);
+    }
+    fn discard(&mut self) {
+        self.discard();
+    }
+    fn compact(&mut self) {
+        self.compact();
+    }
+    */
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    clippy::indexing_slicing,
+    reason = "Okay in tests"
+)]
 mod tests {
     use super::*;
+    use crate::constants::CHUNK_SIZE;
+    use std::io::{BufRead, Cursor, Read};
+
+    // TODO: Add useful tests and not just LLM vomit.
+
+    // Claude generated tests below: -------------------------------------------
+
+    // ========== Read trait tests ==========
+
+    #[test]
+    fn test_read_basic() {
+        let data = b"Hello, World!";
+        let mut reader = DynBufReader::new(Cursor::new(data));
+        let mut buf = [0u8; 5];
+
+        let n = reader.read(&mut buf).unwrap();
+        assert_eq!(n, 5);
+        assert_eq!(&buf[..n], b"Hello");
+    }
+
+    #[test]
+    fn test_read_multiple_calls() {
+        let data = b"Hello, World!";
+        let mut reader = DynBufReader::new(Cursor::new(data));
+        let mut buf = [0u8; 5];
+
+        // First read
+        let n = reader.read(&mut buf).unwrap();
+        assert_eq!(n, 5);
+        assert_eq!(&buf[..n], b"Hello");
+
+        // Second read
+        let n = reader.read(&mut buf).unwrap();
+        assert_eq!(n, 5);
+        assert_eq!(&buf[..n], b", Wor");
+
+        // Third read
+        let n = reader.read(&mut buf).unwrap();
+        assert_eq!(n, 3);
+        assert_eq!(&buf[..n], b"ld!");
+
+        // EOF
+        let n = reader.read(&mut buf).unwrap();
+        assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn test_read_empty() {
+        let data = b"";
+        let mut reader = DynBufReader::new(Cursor::new(data));
+        let mut buf = [0u8; 10];
+
+        let n = reader.read(&mut buf).unwrap();
+        assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn test_read_exact_buffer_size() {
+        let data = b"12345";
+        let mut reader = DynBufReader::new(Cursor::new(data));
+        let mut buf = [0u8; 5];
+
+        let n = reader.read(&mut buf).unwrap();
+        assert_eq!(n, 5);
+        assert_eq!(&buf, b"12345");
+
+        // EOF
+        let n = reader.read(&mut buf).unwrap();
+        assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn test_read_larger_than_data() {
+        let data = b"Hi";
+        let mut reader = DynBufReader::new(Cursor::new(data));
+        let mut buf = [0u8; 100];
+
+        let n = reader.read(&mut buf).unwrap();
+        assert_eq!(n, 2);
+        assert_eq!(&buf[..n], b"Hi");
+    }
+
+    #[test]
+    fn test_read_small_buffer() {
+        let data = b"Hello, World!";
+        let mut reader = DynBufReader::new(Cursor::new(data));
+        let mut buf = [0u8; 1];
+
+        // Read byte by byte
+        let n = reader.read(&mut buf).unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(&buf[..n], b"H");
+
+        let n = reader.read(&mut buf).unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(&buf[..n], b"e");
+
+        let n = reader.read(&mut buf).unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(&buf[..n], b"l");
+    }
+
+    #[test]
+    fn test_read_respects_max_capacity() {
+        let data = vec![0u8; CHUNK_SIZE * 2];
+        let mut reader = DynBufReader::with_max_capacity(CHUNK_SIZE, Cursor::new(data));
+        // Buffer larger than max_capacity to show it only reads up to max_capacity
+        let mut buf = vec![0u8; CHUNK_SIZE * 3];
+
+        // First read should cap at max_capacity worth of data
+        let n1 = reader.read(&mut buf).unwrap();
+        assert!(n1 > 0);
+        assert!(n1 <= CHUNK_SIZE, "Read should not exceed max_capacity");
+
+        // Buffer is now full (consumed data still in buffer), can't read more without compacting
+        let n_blocked = reader.read(&mut buf).unwrap();
+        assert_eq!(
+            n_blocked, 0,
+            "Should return 0 when buffer is at max_capacity without compaction"
+        );
+
+        // After manual compaction, we can read more
+        reader.compact();
+        let n2 = reader.read(&mut buf).unwrap();
+        assert!(n2 > 0);
+
+        // Verify buffer capacity never exceeded max_capacity
+        assert!(
+            reader.buffer.cap() <= CHUNK_SIZE,
+            "Buffer capacity should never exceed max_capacity"
+        );
+
+        // Continue reading until EOF with manual compaction
+        let mut total = n1 + n2;
+        loop {
+            let n = reader.read(&mut buf).unwrap();
+            if n == 0 {
+                break;
+            }
+            reader.compact();
+            total += n;
+        }
+
+        assert_eq!(total, CHUNK_SIZE * 2);
+    }
+
+    #[test]
+    fn test_read_large_data() {
+        // Test reading data larger than CHUNK_SIZE works correctly
+        // and verifies content integrity across multiple reads
+        let data = vec![b'x'; CHUNK_SIZE * 3];
+        let mut reader = DynBufReader::new(Cursor::new(data));
+        let mut buf = vec![0u8; CHUNK_SIZE];
+        let mut total = 0;
+
+        loop {
+            let n = reader.read(&mut buf).unwrap();
+            if n == 0 {
+                break;
+            }
+            total += n;
+            // Verify data integrity - all bytes should be 'x'
+            assert!(buf[..n].iter().all(|&b| b == b'x'));
+        }
+
+        assert_eq!(total, CHUNK_SIZE * 3);
+    }
+
+    #[test]
+    fn test_read_after_bufread_consume() {
+        // Test that Read trait works correctly after consuming data via BufRead
+        let data = b"Hello, World!";
+        let mut reader = DynBufReader::new(Cursor::new(data));
+
+        // Use BufRead to fill buffer
+        let filled = reader.fill_buf().unwrap();
+        assert_eq!(filled, b"Hello, World!");
+
+        // Consume some bytes via BufRead
+        reader.consume(7);
+
+        // Read trait should return the unconsumed data
+        let mut buf = [0u8; 6];
+        let n = reader.read(&mut buf).unwrap();
+        assert_eq!(n, 6);
+        assert_eq!(&buf[..n], b"World!");
+    }
+
+    // ========== BufRead trait tests ==========
+
+    #[test]
+    fn test_fill_buf_basic() {
+        let data = b"Hello, World!";
+        let mut reader = DynBufReader::new(Cursor::new(data));
+
+        let buf = reader.fill_buf().unwrap();
+        assert_eq!(buf, b"Hello, World!");
+    }
+
+    #[test]
+    fn test_fill_buf_consume() {
+        let data = b"Hello, World!";
+        let mut reader = DynBufReader::new(Cursor::new(data));
+
+        let buf = reader.fill_buf().unwrap();
+        assert_eq!(buf, b"Hello, World!");
+
+        reader.consume(7);
+
+        let buf = reader.fill_buf().unwrap();
+        assert_eq!(buf, b"World!");
+    }
+
+    #[test]
+    fn test_fill_buf_multiple_consume() {
+        let data = b"ABCDEFGHIJ";
+        let mut reader = DynBufReader::new(Cursor::new(data));
+
+        // First segment
+        let buf = reader.fill_buf().unwrap();
+        assert_eq!(buf, b"ABCDEFGHIJ");
+        reader.consume(3);
+
+        // Second segment
+        let buf = reader.fill_buf().unwrap();
+        assert_eq!(buf, b"DEFGHIJ");
+        reader.consume(4);
+
+        // Third segment
+        let buf = reader.fill_buf().unwrap();
+        assert_eq!(buf, b"HIJ");
+        reader.consume(3);
+
+        // EOF
+        let buf = reader.fill_buf().unwrap();
+        assert_eq!(buf, b"");
+    }
+
+    #[test]
+    fn test_fill_buf_empty() {
+        let data = b"";
+        let mut reader = DynBufReader::new(Cursor::new(data));
+
+        let buf = reader.fill_buf().unwrap();
+        assert_eq!(buf, b"");
+    }
+
+    #[test]
+    fn test_fill_buf_grows_when_full() {
+        // Create data larger than initial chunk size to force growth
+        let data = vec![b'A'; CHUNK_SIZE + 100];
+        let mut reader = DynBufReader::new(Cursor::new(data.clone()));
+
+        // First fill - buffer should grow to accommodate all data
+        let buf = reader.fill_buf().unwrap();
+        let initial_len = buf.len();
+        assert!(buf.len() >= CHUNK_SIZE, "Should read at least CHUNK_SIZE");
+        assert!(buf.iter().all(|&b| b == b'A'));
+
+        // Verify that buffer actually grew if needed
+        if initial_len < data.len() {
+            // Consume what we have
+            reader.consume(initial_len);
+
+            // Second fill should get remaining data
+            let buf = reader.fill_buf().unwrap();
+            assert_eq!(
+                buf.len(),
+                data.len() - initial_len,
+                "Should read remaining data"
+            );
+            assert!(buf.iter().all(|&b| b == b'A'));
+
+            // Verify we got all data across both fills
+            assert_eq!(
+                initial_len + buf.len(),
+                data.len(),
+                "Should have read all data total"
+            );
+        } else {
+            // All data was read in first fill - buffer grew successfully
+            assert_eq!(
+                initial_len,
+                data.len(),
+                "Should read all data in first fill when buffer grows"
+            );
+        }
+    }
+
+    #[test]
+    fn test_fill_buf_with_consume_cycle() {
+        // Test the consume-and-refill cycle with larger data
+        // This is different from previous test because it verifies the cycle works correctly
+        let data = vec![b'B'; CHUNK_SIZE * 2];
+        let mut reader = DynBufReader::new(Cursor::new(data));
+
+        // First fill
+        let buf = reader.fill_buf().unwrap();
+        assert!(
+            buf.len() >= CHUNK_SIZE,
+            "First fill should read at least CHUNK_SIZE"
+        );
+        let first_len = buf.len();
+
+        // Consume everything from first fill
+        reader.consume(first_len);
+
+        // Second fill should get remaining data (if any)
+        let buf = reader.fill_buf().unwrap();
+        let second_len = buf.len();
+
+        if first_len < CHUNK_SIZE * 2 {
+            assert!(second_len > 0, "Should have remaining data to read");
+            assert_eq!(
+                first_len + second_len,
+                CHUNK_SIZE * 2,
+                "Total should equal data size"
+            );
+        } else {
+            assert_eq!(second_len, 0, "Should be at EOF after reading all data");
+        }
+    }
+
+    #[test]
+    fn test_fill_buf_consume_zero() {
+        let data = b"Hello";
+        let mut reader = DynBufReader::new(Cursor::new(data));
+
+        let buf = reader.fill_buf().unwrap();
+        assert_eq!(buf, b"Hello");
+
+        reader.consume(0);
+
+        let buf = reader.fill_buf().unwrap();
+        assert_eq!(buf, b"Hello");
+    }
+
+    #[test]
+    fn test_fill_buf_consume_beyond_available() {
+        let data = b"Hello";
+        let mut reader = DynBufReader::new(Cursor::new(data));
+
+        let buf = reader.fill_buf().unwrap();
+        assert_eq!(buf, b"Hello");
+
+        // Consume more than available (should clamp)
+        reader.consume(1000);
+
+        let buf = reader.fill_buf().unwrap();
+        assert_eq!(buf, b"");
+    }
+
+    #[test]
+    fn test_fill_buf_eof_after_consume() {
+        // Test that fill_buf correctly returns empty slice at EOF
+        let data = b"Hello, World!";
+        let mut reader = DynBufReader::new(Cursor::new(data));
+
+        // Fill buffer
+        let buf = reader.fill_buf().unwrap();
+        assert_eq!(buf, b"Hello, World!");
+
+        // Consume all data
+        reader.consume(13);
+
+        // fill_buf should attempt to refill but return empty (EOF reached)
+        let buf = reader.fill_buf().unwrap();
+        assert_eq!(buf, b"", "Should return empty slice at EOF");
+    }
+
+    #[test]
+    fn test_fill_buf_respects_max_capacity() {
+        let data = vec![0u8; CHUNK_SIZE * 4];
+        let mut reader = DynBufReader::with_max_capacity(CHUNK_SIZE * 2, Cursor::new(data));
+
+        // First fill should read up to max_capacity
+        let buf = reader.fill_buf().unwrap();
+        let first_len = buf.len();
+        assert!(
+            first_len <= CHUNK_SIZE * 2,
+            "Should not exceed max_capacity"
+        );
+
+        // Verify buffer capacity doesn't exceed max_capacity
+        assert!(
+            reader.buffer.cap() <= CHUNK_SIZE * 2,
+            "Buffer capacity should not exceed max_capacity"
+        );
+
+        // Consume and fill again to verify max_capacity is consistently enforced
+        reader.consume(first_len);
+        let buf = reader.fill_buf().unwrap();
+        assert!(
+            buf.len() <= CHUNK_SIZE * 2,
+            "Should still respect max_capacity on refill"
+        );
+        assert!(
+            reader.buffer.cap() <= CHUNK_SIZE * 2,
+            "Buffer capacity should still not exceed max_capacity"
+        );
+    }
+
+    // ========== Integration tests (Read + BufRead) ==========
+
+    #[test]
+    fn test_mixed_read_and_fill_buf() {
+        let data = b"Hello, World! How are you?";
+        let mut reader = DynBufReader::new(Cursor::new(data));
+
+        // Use fill_buf
+        let buf = reader.fill_buf().unwrap();
+        assert_eq!(&buf[..5], b"Hello");
+
+        // Consume
+        reader.consume(7);
+
+        // Use read
+        let mut read_buf = [0u8; 6];
+        let n = reader.read(&mut read_buf).unwrap();
+        assert_eq!(n, 6);
+        assert_eq!(&read_buf[..n], b"World!");
+
+        // Use fill_buf again
+        let buf = reader.fill_buf().unwrap();
+        assert_eq!(&buf[..4], b" How");
+    }
+
+    #[test]
+    fn test_read_line() {
+        let data = b"Line 1\nLine 2\nLine 3";
+        let mut reader = DynBufReader::new(Cursor::new(data));
+
+        let mut line = String::new();
+        let n = reader.read_line(&mut line).unwrap();
+        assert_eq!(n, 7);
+        assert_eq!(line, "Line 1\n");
+
+        line.clear();
+        let n = reader.read_line(&mut line).unwrap();
+        assert_eq!(n, 7);
+        assert_eq!(line, "Line 2\n");
+
+        line.clear();
+        let n = reader.read_line(&mut line).unwrap();
+        assert_eq!(n, 6);
+        assert_eq!(line, "Line 3");
+
+        line.clear();
+        let n = reader.read_line(&mut line).unwrap();
+        assert_eq!(n, 0);
+        assert_eq!(line, "");
+    }
+
+    #[test]
+    fn test_read_until() {
+        let data = b"key1:value1;key2:value2;";
+        let mut reader = DynBufReader::new(Cursor::new(data));
+
+        let mut buf = Vec::new();
+        let n = reader.read_until(b':', &mut buf).unwrap();
+        assert_eq!(n, 5);
+        assert_eq!(&buf, b"key1:");
+
+        buf.clear();
+        let n = reader.read_until(b';', &mut buf).unwrap();
+        assert_eq!(n, 7);
+        assert_eq!(&buf, b"value1;");
+
+        buf.clear();
+        let n = reader.read_until(b':', &mut buf).unwrap();
+        assert_eq!(n, 5);
+        assert_eq!(&buf, b"key2:");
+    }
+
+    #[test]
+    fn test_lines_iterator() {
+        let data = b"First\nSecond\nThird\n";
+        let reader = DynBufReader::new(Cursor::new(data));
+
+        let lines: Vec<_> = reader.lines().collect::<Result<_, _>>().unwrap();
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0], "First");
+        assert_eq!(lines[1], "Second");
+        assert_eq!(lines[2], "Third");
+    }
+
+    #[test]
+    fn test_split_iterator() {
+        let data = b"a,b,c,d,e";
+        let reader = DynBufReader::new(Cursor::new(data));
+
+        let parts: Vec<_> = reader.split(b',').collect::<Result<_, _>>().unwrap();
+        assert_eq!(parts.len(), 5);
+        assert_eq!(parts[0], b"a");
+        assert_eq!(parts[1], b"b");
+        assert_eq!(parts[2], b"c");
+        assert_eq!(parts[3], b"d");
+        assert_eq!(parts[4], b"e");
+    }
+
+    #[test]
+    fn test_read_exact() {
+        let data = b"0123456789";
+        let mut reader = DynBufReader::new(Cursor::new(data));
+
+        let mut buf = [0u8; 5];
+        reader.read_exact(&mut buf).unwrap();
+        assert_eq!(&buf, b"01234");
+
+        reader.read_exact(&mut buf).unwrap();
+        assert_eq!(&buf, b"56789");
+
+        // Should fail on EOF
+        let result = reader.read_exact(&mut buf);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_read_to_end() {
+        let data = b"Hello, World!";
+        let mut reader = DynBufReader::new(Cursor::new(data));
+
+        let mut result = Vec::new();
+        let n = reader.read_to_end(&mut result).unwrap();
+        assert_eq!(n, 13);
+        assert_eq!(result, b"Hello, World!");
+    }
+
+    #[test]
+    fn test_read_to_string() {
+        let data = b"Hello, World!";
+        let mut reader = DynBufReader::new(Cursor::new(data));
+
+        let mut result = String::new();
+        let n = reader.read_to_string(&mut result).unwrap();
+        assert_eq!(n, 13);
+        assert_eq!(result, "Hello, World!");
+    }
+
+    #[test]
+    fn test_large_lines() {
+        // Test reading lines that are larger than CHUNK_SIZE
+        let line = "x".repeat(CHUNK_SIZE * 2);
+        let data = format!("{line}\n{line}\n");
+        let mut reader = DynBufReader::new(Cursor::new(data.as_bytes()));
+
+        let mut result = String::new();
+        let n = reader.read_line(&mut result).unwrap();
+        assert_eq!(n, CHUNK_SIZE * 2 + 1);
+        assert_eq!(result.trim(), line);
+
+        result.clear();
+        let n = reader.read_line(&mut result).unwrap();
+        assert_eq!(n, CHUNK_SIZE * 2 + 1);
+        assert_eq!(result.trim(), line);
+    }
+
+    // ========== Edge cases ==========
+
+    #[test]
+    fn test_alternating_read_operations() {
+        let data = b"ABCDEFGHIJKLMNOP";
+        let mut reader = DynBufReader::new(Cursor::new(data));
+
+        // fill_buf
+        let buf = reader.fill_buf().unwrap();
+        assert_eq!(&buf[..2], b"AB");
+        reader.consume(2);
+
+        // read
+        let mut read_buf = [0u8; 2];
+        let n = reader.read(&mut read_buf).unwrap();
+        assert_eq!(n, 2);
+        assert_eq!(&read_buf, b"CD");
+
+        // fill_buf
+        let buf = reader.fill_buf().unwrap();
+        assert_eq!(&buf[..2], b"EF");
+        reader.consume(2);
+
+        // read
+        let n = reader.read(&mut read_buf).unwrap();
+        assert_eq!(n, 2);
+        assert_eq!(&read_buf, b"GH");
+    }
+
+    #[test]
+    fn test_consume_and_compact() {
+        let data = b"Hello, World! This is a test.";
+        let mut reader = DynBufReader::new(Cursor::new(data));
+
+        // Fill and consume
+        let buf = reader.fill_buf().unwrap();
+        assert_eq!(&buf[..5], b"Hello");
+        reader.consume(7);
+
+        // Manually compact
+        reader.compact();
+
+        // Continue reading
+        let buf = reader.fill_buf().unwrap();
+        assert_eq!(&buf[..5], b"World");
+    }
+
+    #[test]
+    fn test_discard() {
+        let data = b"Hello, World!";
+        let mut reader = DynBufReader::new(Cursor::new(data));
+
+        // Fill buffer
+        let buf = reader.fill_buf().unwrap();
+        assert_eq!(buf, b"Hello, World!");
+
+        // Discard everything
+        reader.discard();
+
+        // Buffer should be empty but we're at EOF
+        let buf = reader.fill_buf().unwrap();
+        assert_eq!(buf, b"");
+    }
+
+    #[test]
+    fn test_grow_shrink() {
+        let data = vec![b'Z'; CHUNK_SIZE];
+        let mut reader = DynBufReader::new(Cursor::new(data));
+
+        let initial_cap = reader.buffer.cap();
+
+        // Grow
+        reader.grow();
+        assert!(reader.buffer.cap() > initial_cap);
+
+        // Shrink
+        reader.shrink();
+        assert_eq!(reader.buffer.cap(), CHUNK_SIZE);
+    }
+
+    #[test]
+    fn test_utf8_boundary_handling() {
+        // Test with multibyte UTF-8 characters
+        let data = "Hello, 世界! 😀".as_bytes();
+        let mut reader = DynBufReader::new(Cursor::new(data));
+
+        let mut result = String::new();
+        reader.read_to_string(&mut result).unwrap();
+        assert_eq!(result, "Hello, 世界! 😀");
+    }
 }
