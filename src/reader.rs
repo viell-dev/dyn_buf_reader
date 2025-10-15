@@ -124,9 +124,12 @@ impl<R: Read + ?Sized> BufRead for DynBufReader<R> {
 }
 
 impl<R: Read + ?Sized> DynBufRead for DynBufReader<R> {
-    /* TODO: Add aliases like this, I guess:
-    fn consume(&mut self, amt: usize) {
-        self.consume(amt);
+    // TODO: more stuff...
+    fn grow(&mut self) {
+        self.grow();
+    }
+    fn shrink(&mut self) {
+        self.shrink();
     }
     fn discard(&mut self) {
         self.discard();
@@ -134,7 +137,6 @@ impl<R: Read + ?Sized> DynBufRead for DynBufReader<R> {
     fn compact(&mut self) {
         self.compact();
     }
-    */
 }
 
 #[cfg(test)]
@@ -313,6 +315,7 @@ mod tests {
         assert_eq!(total, CHUNK_SIZE * 3);
     }
 
+    // spell-checker:ignore bufread
     #[test]
     fn test_read_after_bufread_consume() {
         // Test that Read trait works correctly after consuming data via BufRead
@@ -370,7 +373,7 @@ mod tests {
 
         // Second segment
         let buf = reader.fill_buf().unwrap();
-        assert_eq!(buf, b"DEFGHIJ");
+        assert_eq!(buf, b"DEFGHIJ"); // spell-checker:ignore DEFGHIJ
         reader.consume(4);
 
         // Third segment
