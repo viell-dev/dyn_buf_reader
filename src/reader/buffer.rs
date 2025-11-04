@@ -505,13 +505,15 @@ impl Buffer {
             if available < CHUNK_SIZE / 2 && remaining >= available {
                 // We've hit a point where growing would be more optimal than just filling the
                 // available space and the available space is too small.
-                if self.cap < PRACTICAL_MAX_SIZE {
-                    // Available space is insufficient, grow to the next size.
-                    self.grow();
-                } else {
-                    // Can't grow anymore.
+
+                // We've hit max capacity so we can't grow anymore.
+                if self.cap >= PRACTICAL_MAX_SIZE {
+                    debug_assert!(self.cap == PRACTICAL_MAX_SIZE);
                     break;
                 }
+
+                // Available space is insufficient, grow to the next size.
+                self.grow();
             }
 
             // Fill all available space
@@ -688,13 +690,13 @@ impl Buffer {
             match str::from_utf8(&self.buf[start..end]) {
                 Ok(s) => return Ok(s),
                 Err(e) => {
-                    if e.error_len().is_none() {
-                        // If we have an incomplete sequence at the end, then trim it
-                        end = start + e.valid_up_to();
-                    } else {
-                        // We have an invalid UTF-8 sequence in the middle
+                    // If we have an invalid UTF-8 sequence in the middle
+                    if e.error_len().is_some() {
                         return Err(io::Error::new(io::ErrorKind::InvalidData, e));
                     }
+
+                    // We have an incomplete sequence at the end, so trim it
+                    end = start + e.valid_up_to();
                 }
             }
         }
