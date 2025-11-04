@@ -1165,9 +1165,9 @@ mod tests {
             let cur = Cursor::new(data);
             let read = buffer.fill(cur).unwrap();
             let pos = buffer.pos();
-            let data = buffer.buf().get(pos..pos + read).unwrap();
+            let read_data = &buffer.buf()[pos..pos + read];
 
-            assert_eq!(data, data.as_bytes());
+            assert_eq!(read_data, data.as_bytes());
             assert_eq!(pos + read, n * data.len());
 
             buffer.consume(read);
@@ -1177,10 +1177,10 @@ mod tests {
         let cur = Cursor::new(data);
         let read = buffer.fill(cur).unwrap();
         let pos = buffer.pos();
-        let data = buffer.buf().get(pos..pos + read).unwrap();
-        let fin = data.as_bytes().get(..remainder).unwrap();
+        let read_data = &buffer.buf()[pos..pos + read];
+        let source_data = &data.as_bytes()[..remainder];
 
-        assert_eq!(data, fin);
+        assert_eq!(read_data, source_data);
         assert_eq!(buffer.len(), CHUNK_SIZE);
     }
 
@@ -1208,18 +1208,19 @@ mod tests {
         // Verify the data is correct
         for _ in 0..fills {
             let pos = buffer.pos();
-            let data = buffer.buf().get(pos..pos + data.len()).unwrap();
+            let read_data = &buffer.buf()[pos..pos + data.len()];
 
-            assert_eq!(data, data.as_bytes());
+            assert_eq!(read_data, data.as_bytes());
 
             buffer.consume(data.len());
         }
 
         // Verify the last bit of data
         let pos = buffer.pos();
-        let data = buffer.buf().get(pos..pos + remainder).unwrap();
-        let fin = data.as_bytes().get(..remainder).unwrap();
-        assert_eq!(data, fin);
+        let read_data = &buffer.buf()[pos..pos + remainder];
+        let source_data = &data.as_bytes()[..remainder];
+
+        assert_eq!(read_data, source_data);
     }
 
     #[test]
