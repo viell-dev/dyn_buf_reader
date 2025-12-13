@@ -1,8 +1,6 @@
-pub mod buffer;
-
 use crate::DynBufRead;
+use crate::buffer::Buffer;
 use crate::constants::DEFAULT_MAX_SIZE;
-use buffer::Buffer;
 use std::io::{self, BufRead, Read};
 
 pub struct DynBufReader<R: ?Sized> {
