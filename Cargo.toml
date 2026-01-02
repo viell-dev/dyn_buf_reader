@@ -39,5 +39,3 @@ print_stdout = "warn"
 todo = "warn"
 unimplemented = "warn"
 unwrap_used = "warn"
-
-[dependencies]

@@ -18,7 +18,7 @@
 //! - `DEFAULT_MAX_SIZE > CHUNK_SIZE` and is a power of 2 multiple of `CHUNK_SIZE`
 //! - `PRACTICAL_MAX_SIZE > DEFAULT_MAX_SIZE` and is a power of 2 multiple of `CHUNK_SIZE`
 //!
-//! This invariant ensure that all buffer allocations align properly and that the size hierarchy
+//! These invariants ensure that all buffer allocations align properly and that the size hierarchy
 //! remains consistent across the system.
 
 /// Buffer chunk size (8 KiB) used for dynamic buffer allocation.
@@ -38,10 +38,11 @@ pub const CHUNK_SIZE: usize =
 /// This provides a reasonable upper bound for most use cases while preventing runaway memory usage.
 /// It is also always a power of two multiple (larger than 1) of [`CHUNK_SIZE`].
 pub const DEFAULT_MAX_SIZE: usize =
-    // Note: binary bytes are **not** physical units,
-    //       they're more like variables (or scaling factors)
+    // Note: Binary bytes are **not** physical units,
+    //       they're more like variables (or scaling factors).
+    //       They cannot be squared, instead they go up or down in scale.
     // 2^15 = 32768 = 32 * 1024 = 32 KiB
-    // 8 KiB * 32 KiB = 256 KiB^2 = 256 MiB
+    // 8 KiB * 32 KiB = 256 MiB
     CHUNK_SIZE * (1 << 15);
 
 /// Practical maximum buffer size.
@@ -50,8 +51,6 @@ pub const DEFAULT_MAX_SIZE: usize =
 /// against unreasonable user input. Its value is the largest power of two multiple of
 /// [`CHUNK_SIZE`] that fits in usize, representing the theoretical maximum reachable through
 /// exponential growth.
-///
-/// # Safety
 ///
 /// While this is a massive number, it won't overflow as it resolves to `usize::MAX / 2 + 1` just
 /// expressed in terms of `CHUNK_SIZE`.
