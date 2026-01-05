@@ -5,11 +5,9 @@
 //! asynchronous and this does not matter there, when reading the file, it makes the flow much
 //! easier to understand since we don't introduce future concepts if we can avoid them.
 
-// spell-checker:ignore Helloé, aaéé, éééñ
 #![expect(
-    clippy::unwrap_used,
     clippy::indexing_slicing,
-    clippy::arithmetic_side_effects,
+    clippy::unwrap_used,
     reason = "Okay in tests"
 )]
 

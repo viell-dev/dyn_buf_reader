@@ -7,17 +7,17 @@
 //! # Example
 //!
 //! ```
-//! use dyn_buf_reader::buffer::{Buffer, FillResult};
+//! use dyn_buf_reader::buffer::{Buffer, GrowingFillResult};
 //! use std::io::Cursor;
 //!
+//! let cur = Cursor::new("aaaa:bbbb");
 //! let mut buffer = Buffer::new();
-//! let mut reader = Cursor::new("aaaa:bbbb");
 //!
 //! // Read until delimiter
-//! let result = buffer.fill_until(&mut reader, ':', None).unwrap();
-//! assert!(matches!(result, FillResult::Complete(5))); // "aaaa:" (includes delimiter)
+//! let result = buffer.fill_until(cur, ':', None).unwrap();
+//! assert!(matches!(result, GrowingFillResult::Complete(5))); // "aaaa:" (includes delimiter)
 //!
-//! // Access the data
+//! // Access the read data
 //! assert_eq!(buffer.as_str().unwrap(), "aaaa:bbbb");
 //!
 //! // Consume what we processed
@@ -163,7 +163,7 @@ impl From<FillResult> for GrowingFillResult {
 ///
 /// This buffer maintains the invariant `0 <= self.pos <= self.len <= self.cap == self.buf.len() <=
 /// self.buf.capacity()` at all times, ensuring memory safety and correctness of all operations.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Buffer {
     /// Internal buffer storage.
     buf: Vec<u8>,
