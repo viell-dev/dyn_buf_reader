@@ -301,13 +301,14 @@ impl Buffer {
     /// # Examples
     ///
     /// ```
-    /// # use dyn_buf_reader::buffer::Buffer;
+    /// # use dyn_buf_reader::{buffer::Buffer, constants::CHUNK_SIZE};
     /// # use std::io::Cursor;
-    /// let mut buffer = Buffer::new();
+    /// let mut buffer = Buffer::with_capacity(8 * CHUNK_SIZE);
     /// buffer.fill(Cursor::new(b"data")).unwrap();
-    /// buffer.discard();
+    /// buffer.clear();
     /// assert_eq!(buffer.len(), 0);
     /// assert_eq!(buffer.pos(), 0);
+    /// assert_eq!(buffer.cap(), 8 * CHUNK_SIZE);
     /// ```
     #[inline]
     pub fn clear(&mut self) {
@@ -323,13 +324,14 @@ impl Buffer {
     /// # Examples
     ///
     /// ```
-    /// # use dyn_buf_reader::buffer::Buffer;
+    /// # use dyn_buf_reader::{buffer::Buffer, constants::CHUNK_SIZE};
     /// # use std::io::Cursor;
-    /// let mut buffer = Buffer::new();
+    /// let mut buffer = Buffer::with_capacity(8 * CHUNK_SIZE);
     /// buffer.fill(Cursor::new(b"data")).unwrap();
     /// buffer.discard();
     /// assert_eq!(buffer.len(), 0);
     /// assert_eq!(buffer.pos(), 0);
+    /// assert_eq!(buffer.cap(), CHUNK_SIZE);
     /// ```
     #[inline]
     pub fn discard(&mut self) {
