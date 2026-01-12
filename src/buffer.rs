@@ -1074,6 +1074,26 @@ impl Buffer {
             result => Ok(result), // Eof or Capped - pass through unchanged
         }
     }
+
+    /// Test helper to inject data directly into the buffer.
+    ///
+    /// This bypasses the normal fill operations and directly sets buffer contents,
+    /// useful for testing specific buffer states.
+    ///
+    /// # Safety
+    ///
+    /// This is only available in test builds and should only be used in tests.
+    /// It does not validate that the invariants are maintained.
+    #[cfg(test)]
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "Used in tests only, so it being unsafe is fine"
+    )]
+    pub fn inject_test_data(&mut self, data: &[u8]) {
+        self.buf[..data.len()].copy_from_slice(data);
+        self.len = data.len();
+        self.pos = 0;
+    }
 }
 
 #[cfg(test)]
