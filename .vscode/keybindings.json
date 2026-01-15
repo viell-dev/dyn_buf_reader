@@ -1,0 +1,14 @@
+[
+  {
+    "key": "f5",
+    "command": "workbench.action.debug.start"
+  },
+  {
+    "key": "ctrl+f5",
+    "command": "workbench.action.debug.run"
+  },
+  {
+    "key": "shift+f5",
+    "command": "workbench.action.debug.stop"
+  }
+]
