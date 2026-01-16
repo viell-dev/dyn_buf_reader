@@ -7,7 +7,7 @@
 //! # Example
 //!
 //! ```
-//! use dyn_buf_reader::buffer::{Buffer, GrowingFillResult};
+//! use dyn_buf_reader::buffer::{Buffer, UnboundedFillResult};
 //! use dyn_buf_reader::constants::CHUNK_SIZE;
 //! use std::io::Cursor;
 //!
@@ -17,7 +17,7 @@
 //!
 //! // Read a specific amount
 //! let result = buffer.fill_amount(cur, 3 * CHUNK_SIZE, None).unwrap();
-//! assert!(matches!(result, GrowingFillResult::Complete(_)));
+//! assert!(matches!(result, UnboundedFillResult::Complete(_)));
 //!
 //! // Consume what we processed
 //! buffer.consume(CHUNK_SIZE);
@@ -30,11 +30,9 @@ use crate::constants::{CHUNK_SIZE, PRACTICAL_MAX_SIZE};
 use std::cmp;
 use std::io::{self, Read};
 
-/// Result type for the non-growing fill operations.
+/// Result type for bounded fill operations.
 ///
-/// This type is returned by [`fill`](Buffer::fill), which reads data into the buffer's
-/// current capacity without growing it. The operation is limited by the available space
-/// in the buffer's current allocation.
+/// Returned by operations that read within a known limit.
 ///
 /// The contained byte count represents the total bytes read from the reader.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,18 +65,14 @@ impl FillResult {
     }
 }
 
-/// Result type for growing fill operations.
+/// Result type for unbounded fill operations.
 ///
-/// This type is returned by [`fill_amount`](Buffer::fill_amount). This operation dynamically
-/// grows the buffer to accommodate more data, but could hit a set maximum capacity before
-/// completing or reaching EOF.
+/// Returned by operations that read without a known limit.
 ///
 /// The contained byte count represents the total bytes read from the reader.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GrowingFillResult {
+pub enum UnboundedFillResult {
     /// The operation completed successfully.
-    ///
-    /// For [`fill_amount`](Buffer::fill_amount): The requested amount was read.
     ///
     /// Contains the byte count.
     Complete(usize),
@@ -97,16 +91,16 @@ pub enum GrowingFillResult {
     Capped(usize),
 }
 
-impl GrowingFillResult {
+impl UnboundedFillResult {
     /// Returns the byte count, regardless of completion status.
     ///
     /// # Examples
     ///
     /// ```
-    /// # use dyn_buf_reader::buffer::GrowingFillResult;
-    /// assert_eq!(GrowingFillResult::Complete(42).count(), 42);
-    /// assert_eq!(GrowingFillResult::Eof(10).count(), 10);
-    /// assert_eq!(GrowingFillResult::Capped(100).count(), 100);
+    /// # use dyn_buf_reader::buffer::UnboundedFillResult;
+    /// assert_eq!(UnboundedFillResult::Complete(42).count(), 42);
+    /// assert_eq!(UnboundedFillResult::Eof(10).count(), 10);
+    /// assert_eq!(UnboundedFillResult::Capped(100).count(), 100);
     /// ```
     pub const fn count(&self) -> usize {
         match self {
@@ -115,11 +109,11 @@ impl GrowingFillResult {
     }
 }
 
-impl From<FillResult> for GrowingFillResult {
+impl From<FillResult> for UnboundedFillResult {
     fn from(result: FillResult) -> Self {
         match result {
-            FillResult::Complete(n) => GrowingFillResult::Complete(n),
-            FillResult::Eof(n) => GrowingFillResult::Eof(n),
+            FillResult::Complete(n) => UnboundedFillResult::Complete(n),
+            FillResult::Eof(n) => UnboundedFillResult::Eof(n),
         }
     }
 }
@@ -696,14 +690,14 @@ impl Buffer {
     /// # Examples
     ///
     /// ```
-    /// # use dyn_buf_reader::buffer::{Buffer, GrowingFillResult};
+    /// # use dyn_buf_reader::buffer::{Buffer, UnboundedFillResult};
     /// # use dyn_buf_reader::constants::CHUNK_SIZE;
     /// # use std::io::Cursor;
     /// let mut buffer = Buffer::new();
     /// let data = vec![0u8; 3 * CHUNK_SIZE];
     /// let mut reader = Cursor::new(data);
     /// let result = buffer.fill_amount(&mut reader, 3 * CHUNK_SIZE, None).unwrap();
-    /// assert!(matches!(result, GrowingFillResult::Complete(_)));
+    /// assert!(matches!(result, UnboundedFillResult::Complete(_)));
     /// assert!(result.count() >= 3 * CHUNK_SIZE);
     /// ```
     ///
@@ -720,7 +714,7 @@ impl Buffer {
         mut reader: impl Read,
         amt: usize,
         max_capacity: Option<usize>,
-    ) -> io::Result<GrowingFillResult> {
+    ) -> io::Result<UnboundedFillResult> {
         // Get the maximum capacity so we don't grow beyond it
         let max_capacity = max_capacity.unwrap_or(PRACTICAL_MAX_SIZE);
         // Capture starting capacity to use as shrink limit
@@ -752,7 +746,7 @@ impl Buffer {
                 debug_assert!(self.len == self.cap);
 
                 // We've filled the buffer to max capacity
-                return Ok(GrowingFillResult::Capped(total_bytes_read));
+                return Ok(UnboundedFillResult::Capped(total_bytes_read));
             }
 
             // Fill all available space
@@ -772,14 +766,14 @@ impl Buffer {
 
             if bytes_read == 0 {
                 // We've hit EOF
-                return Ok(GrowingFillResult::Eof(total_bytes_read));
+                return Ok(UnboundedFillResult::Eof(total_bytes_read));
             }
         }
 
         // Shrink in case we were overeager with our growth
         self.shrink_targeted(starting_capacity);
 
-        Ok(GrowingFillResult::Complete(total_bytes_read))
+        Ok(UnboundedFillResult::Complete(total_bytes_read))
     }
 
     /// Aligns a position backward to the start of the current UTF-8 character.
