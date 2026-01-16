@@ -16,7 +16,7 @@ use crate::constants::CHUNK_SIZE;
 use std::io::Cursor;
 
 // -----------------------------------------------------------------------------
-// FillResult and GrowingFillResult enums
+// FillResult and UnboundedFillResult enums
 // -----------------------------------------------------------------------------
 
 #[test]
@@ -29,27 +29,30 @@ fn test_fill_result_count() {
 }
 
 #[test]
-fn test_growing_fill_result_count() {
-    let complete = GrowingFillResult::Complete(123);
+fn test_unbounded_fill_result_count() {
+    let complete = UnboundedFillResult::Complete(123);
     assert_eq!(complete.count(), 123);
 
-    let eof = GrowingFillResult::Eof(123);
+    let eof = UnboundedFillResult::Eof(123);
     assert_eq!(eof.count(), 123);
 
-    let capped = GrowingFillResult::Capped(123);
+    let capped = UnboundedFillResult::Capped(123);
     assert_eq!(capped.count(), 123);
 }
 
 #[test]
-fn test_growing_fill_result_from_fill_result() {
+fn test_unbounded_fill_result_from_fill_result() {
     let fill_complete = FillResult::Complete(123);
     let fill_eof = FillResult::Eof(123);
 
-    let growing_complete = GrowingFillResult::from(fill_complete);
-    let growing_eof = GrowingFillResult::from(fill_eof);
+    let unbounded_complete = UnboundedFillResult::from(fill_complete);
+    let unbounded_eof = UnboundedFillResult::from(fill_eof);
 
-    assert!(matches!(growing_complete, GrowingFillResult::Complete(123)));
-    assert!(matches!(growing_eof, GrowingFillResult::Eof(123)));
+    assert!(matches!(
+        unbounded_complete,
+        UnboundedFillResult::Complete(123)
+    ));
+    assert!(matches!(unbounded_eof, UnboundedFillResult::Eof(123)));
 }
 
 // -----------------------------------------------------------------------------
@@ -606,7 +609,7 @@ fn test_buffer_fill_amount() {
     let read = buffer.fill_amount(cur, 123, max_capacity).unwrap();
 
     // We should not have read any bytes
-    assert_eq!(read, GrowingFillResult::Eof(0));
+    assert_eq!(read, UnboundedFillResult::Eof(0));
     assert_eq!(buffer.len(), 0);
 
     // This time, read a bit before hitting EOF
@@ -614,7 +617,7 @@ fn test_buffer_fill_amount() {
     let read = buffer.fill_amount(cur, 123, max_capacity).unwrap();
 
     // We should have one instance of `raw`
-    assert_eq!(read, GrowingFillResult::Eof(raw.len()));
+    assert_eq!(read, UnboundedFillResult::Eof(raw.len()));
     assert_eq!(buffer.len(), raw.len());
     assert_eq!(buffer.buf(), raw.as_bytes());
 
@@ -627,7 +630,7 @@ fn test_buffer_fill_amount() {
     // We should have 4 × `CHUNK_SIZE` bytes of data as there where bytes left in the buffer
     assert_eq!(
         read,
-        GrowingFillResult::Complete(4 * CHUNK_SIZE - raw.len())
+        UnboundedFillResult::Complete(4 * CHUNK_SIZE - raw.len())
     );
     assert_eq!(buffer.len(), 4 * CHUNK_SIZE);
 
@@ -642,7 +645,7 @@ fn test_buffer_fill_amount() {
         .unwrap();
 
     // We should read to fill the current capacity, even though it's larger than `max_capacity`
-    assert_eq!(read, GrowingFillResult::Capped(123));
+    assert_eq!(read, UnboundedFillResult::Capped(123));
     assert_eq!(buffer.len(), 4 * CHUNK_SIZE); // Length unchanged
     assert_eq!(buffer.cap(), 4 * CHUNK_SIZE); // Capacity unchanged
 
@@ -656,7 +659,7 @@ fn test_buffer_fill_amount() {
         .unwrap();
 
     // We should have 4 × `CHUNK_SIZE` bytes of data since 4 is the closest power-of-2 after 3
-    assert_eq!(read, GrowingFillResult::Complete(4 * CHUNK_SIZE));
+    assert_eq!(read, UnboundedFillResult::Complete(4 * CHUNK_SIZE));
     assert_eq!(buffer.len(), 4 * CHUNK_SIZE);
     assert_eq!(buffer.buf(), &data.as_bytes()[..buffer.len()]); // Data should match
 
@@ -666,7 +669,7 @@ fn test_buffer_fill_amount() {
         .unwrap();
 
     // We should have hit the max capacity since we requested more than 4 × `CHUNK_SIZE` remaining
-    assert_eq!(read, GrowingFillResult::Capped(4 * CHUNK_SIZE));
+    assert_eq!(read, UnboundedFillResult::Capped(4 * CHUNK_SIZE));
     assert_eq!(buffer.len(), 8 * CHUNK_SIZE); // Hit the max_capacity
     assert_eq!(buffer.cap(), 8 * CHUNK_SIZE);
     assert_eq!(buffer.buf(), &data.as_bytes()[..buffer.len()]); // Data should match
@@ -676,7 +679,7 @@ fn test_buffer_fill_amount() {
     let read = buffer.fill_amount(cur, 123, max_capacity).unwrap();
 
     // We should have read 0 bytes since the buffer is already at max capacity
-    assert_eq!(read, GrowingFillResult::Capped(0));
+    assert_eq!(read, UnboundedFillResult::Capped(0));
     assert_eq!(buffer.len(), 8 * CHUNK_SIZE); // Still at max
     assert_eq!(buffer.cap(), 8 * CHUNK_SIZE);
 }
