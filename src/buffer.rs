@@ -757,13 +757,7 @@ impl Buffer {
         // Loop until we've read enough bytes or EOF
         while total_bytes_read < amt {
             // Fill all available space
-            let bytes_read = match reader.read(&mut self.buf[self.len..self.cap]) {
-                Err(e) => {
-                    self.shrink_targeted(starting_capacity);
-                    return Err(e);
-                }
-                Ok(r) => r,
-            };
+            let bytes_read = reader.read(&mut self.buf[self.len..self.cap])?;
 
             // Increase the length by the number of bytes read
             self.len += bytes_read;
@@ -838,10 +832,7 @@ impl Buffer {
         debug_assert_eq!(unfilled.len(), amt);
 
         // Read exactly the requested amount of bytes
-        if let Err(e) = reader.read_exact(unfilled) {
-            self.shrink_targeted(starting_capacity);
-            return Err(e);
-        }
+        reader.read_exact(unfilled)?;
 
         // Update the length
         self.len += amt;
