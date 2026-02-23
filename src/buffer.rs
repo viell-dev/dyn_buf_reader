@@ -759,17 +759,17 @@ impl Buffer {
             // Fill all available space
             let bytes_read = reader.read(&mut self.buf[self.len..self.cap])?;
 
-            // Increase the length by the number of bytes read
-            self.len += bytes_read;
-
-            // Increase the total number of bytes read
-            total_bytes_read += bytes_read;
-
             if bytes_read == 0 {
                 // We've hit EOF
                 self.shrink_targeted(starting_capacity);
                 return Ok(FillResult::Eof(total_bytes_read));
             }
+
+            // Increase the length by the number of bytes read
+            self.len += bytes_read;
+
+            // Increase the total number of bytes read
+            total_bytes_read += bytes_read;
         }
 
         // Release any excess capacity
@@ -902,16 +902,16 @@ impl Buffer {
                 }
             };
 
+            if bytes_read == 0 {
+                // We've hit EOF
+                break;
+            }
+
             // Increase the length by the number of bytes read
             self.len += bytes_read;
 
             // Increase the total number of bytes read
             total_bytes_read += bytes_read;
-
-            if bytes_read == 0 {
-                // We've hit EOF
-                break;
-            }
         }
 
         // Shrink in case we were overeager with our growth
