@@ -87,6 +87,72 @@ fn test_reader_builder() {
 }
 
 // -----------------------------------------------------------------------------
+// DynBufReader - Peek Methods
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_reader_peek() {
+    // Empty reader returns empty slice
+    let cur: Cursor<&str> = Cursor::default();
+    let reader = DynBufReader::new(cur);
+    assert_eq!(reader.peek(5), &[]);
+
+    // With data in the buffer
+    let data = "Hello, World!";
+    let cur = Cursor::new(data);
+    let mut reader = DynBufReader::new(cur);
+    reader.fill_amount(data.len()).unwrap();
+
+    // Peek at fewer bytes than available
+    assert_eq!(reader.peek(5), b"Hello");
+
+    // Peek at exactly available bytes
+    assert_eq!(reader.peek(data.len()), data.as_bytes());
+
+    // Peek at more than available clamps to what's there
+    assert_eq!(reader.peek(100), data.as_bytes());
+
+    // Peek at zero bytes returns empty slice
+    assert_eq!(reader.peek(0), &[]);
+
+    // Peek doesn't consume — repeated calls return the same data
+    assert_eq!(reader.peek(5), b"Hello");
+
+    // After consuming, peek reflects the new position
+    reader.consume(7);
+    assert_eq!(reader.peek(5), b"World");
+}
+
+#[test]
+fn test_reader_peek_behind() {
+    // Nothing consumed returns empty slice
+    let cur: Cursor<&str> = Cursor::default();
+    let reader = DynBufReader::new(cur);
+    assert_eq!(reader.peek_behind(5), &[]);
+
+    // With data in the buffer, nothing consumed yet
+    let data = "Hello, World!";
+    let cur = Cursor::new(data);
+    let mut reader = DynBufReader::new(cur);
+    reader.fill_amount(data.len()).unwrap();
+    assert_eq!(reader.peek_behind(5), &[]);
+
+    // After consuming some bytes
+    reader.consume(7);
+    assert_eq!(reader.peek_behind(5), b"llo, ");
+    assert_eq!(reader.peek_behind(7), b"Hello, ");
+
+    // More than consumed clamps to what's retained
+    assert_eq!(reader.peek_behind(100), b"Hello, ");
+
+    // Zero returns empty
+    assert_eq!(reader.peek_behind(0), &[]);
+
+    // Peek behind doesn't change state — repeated calls return the same data
+    assert_eq!(reader.peek_behind(7), b"Hello, ");
+}
+
+// -----------------------------------------------------------------------------
 // impl Read
 // -----------------------------------------------------------------------------
 

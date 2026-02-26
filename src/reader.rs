@@ -71,7 +71,29 @@ impl<R: Read> DynBufReaderBuilder<R> {
 }
 
 impl<R: ?Sized> DynBufReader<R> {
-    // TODO: stuff
+    /// Returns up to `n` unconsumed bytes without advancing the read position.
+    ///
+    /// If fewer than `n` unconsumed bytes are available, the returned slice
+    /// contains only what is available. Returns an empty slice when there is
+    /// no unconsumed data.
+    #[expect(clippy::indexing_slicing, reason = "Clamped to buffer bounds")]
+    pub fn peek(&self, n: usize) -> &[u8] {
+        let start = self.buffer.pos();
+        let end = self.buffer.len().min(start.saturating_add(n));
+        &self.buffer.buf()[start..end]
+    }
+
+    /// Returns up to `n` consumed bytes immediately before the read position.
+    ///
+    /// If fewer than `n` consumed bytes are retained, the returned slice
+    /// contains only what is available. Returns an empty slice when no
+    /// consumed data is retained.
+    #[expect(clippy::indexing_slicing, reason = "Clamped to buffer bounds")]
+    pub fn peek_behind(&self, n: usize) -> &[u8] {
+        let end = self.buffer.pos();
+        let start = end.saturating_sub(n);
+        &self.buffer.buf()[start..end]
+    }
 }
 
 impl<R: Read + ?Sized> DynBufReader<R> {
