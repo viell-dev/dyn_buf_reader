@@ -50,50 +50,10 @@ impl<R: Read> DynBufReader<R> {
 
 impl<R: ?Sized> DynBufReader<R> {
     // TODO: stuff
-
-    /*
-    pub fn grow(&mut self) {
-        if self.buffer.cap() < self.max_capacity {
-            self.buffer.grow();
-        }
-    }
-
-    pub fn shrink(&mut self) {
-        self.buffer.shrink();
-    }
-
-    pub fn consume(&mut self, amt: usize) {
-        self.buffer.consume(amt);
-    }
-
-    pub fn discard(&mut self) {
-        self.buffer.clear();
-    }
-
-    pub fn compact(&mut self) {
-        self.buffer.compact();
-    }
-    */
 }
 
 impl<R: Read + ?Sized> DynBufReader<R> {
-    // Might want a non-consuming version of fill_buf, though might want to
-    // rename it to something else as well...
-    /*
-    #[expect(clippy::indexing_slicing, reason = "Safe by invariant")]
-    fn my_fill_buf(&mut self) -> io::Result<&[u8]> {
-        if self.buffer.pos() >= self.buffer.len() {
-            debug_assert!(self.buffer.pos() == self.buffer.len());
-            // We've consumed all the data we have
-
-            // Read to fill the internal buffer
-            let _ = self.buffer.fill(&mut self.reader)?;
-        }
-
-        // Return buffered data
-        Ok(&self.buffer.buf()[self.buffer.pos()..])
-    }
-    */
+    // TODO: stuff
 }
 
 impl<R: Read + ?Sized> Read for DynBufReader<R> {
