@@ -18,7 +18,7 @@ jobs:
         rust: [1.87.0, stable, beta]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
@@ -27,7 +27,6 @@ jobs:
       - name: Check formatting
         run: cargo fmt --check
       - name: Run clippy
-        run: cargo clippy --workspace # Swap to the below command when we don't have warnings all over the place
-        #run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace -- -D warnings
       - name: Run tests
         run: cargo test

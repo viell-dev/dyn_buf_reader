@@ -5,6 +5,9 @@ edition = "2024"
 license = "GPL-3.0-or-later OR Apache-2.0 OR MIT"
 repository = "https://github.com/viell-dev/dyn_buf_reader"
 rust-version = "1.87.0"
+description = "A BufReader with a dynamically growing buffer and manual memory control"
+keywords = ["io", "bufread", "buffer", "reader", "dynamic"]
+categories = ["data-structures", "parsing"]
 
 [lints.rust]
 future_incompatible = { level = "warn", priority = -1 }
