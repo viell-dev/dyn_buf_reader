@@ -14,36 +14,58 @@ impl<R: Read> DynBufReader<R> {
     ///
     /// The buffer starts at the default capacity and can grow up to [`DEFAULT_MAX_SIZE`].
     pub fn new(reader: R) -> DynBufReader<R> {
-        DynBufReader::with_config(reader, None, None)
+        DynBufReader::builder(reader).build()
     }
 
-    /// Creates a new `DynBufReader` with custom capacity configuration.
-    ///
-    /// # Arguments
-    ///
-    /// * `reader` - The underlying reader to buffer
-    /// * `initial_capacity` - Initial buffer capacity, or `None` for default
-    /// * `max_capacity` - Maximum buffer capacity, or `None` for [`DEFAULT_MAX_SIZE`]
-    ///
-    /// Both capacities are rounded up to implementation-specific alignment boundaries.
-    /// If `max_capacity` is less than `initial_capacity`, it is raised to match.
-    pub fn with_config(
-        reader: R,
-        initial_capacity: Option<usize>,
-        max_capacity: Option<usize>,
-    ) -> DynBufReader<R> {
-        let buffer = match initial_capacity {
+    /// Returns a [`DynBufReaderBuilder`] for configuring a new `DynBufReader`.
+    pub fn builder(reader: R) -> DynBufReaderBuilder<R> {
+        DynBufReaderBuilder {
+            reader,
+            initial_capacity: None,
+            max_capacity: None,
+        }
+    }
+}
+
+/// A builder for constructing a [`DynBufReader`] with custom capacity settings.
+///
+/// Both capacities are rounded up to implementation-specific alignment boundaries.
+/// If `max_capacity` is less than `initial_capacity`, it is raised to match.
+#[must_use]
+pub struct DynBufReaderBuilder<R> {
+    reader: R,
+    initial_capacity: Option<usize>,
+    max_capacity: Option<usize>,
+}
+
+impl<R: Read> DynBufReaderBuilder<R> {
+    /// Sets the initial buffer capacity.
+    pub fn initial_capacity(mut self, cap: usize) -> Self {
+        self.initial_capacity = Some(cap);
+        self
+    }
+
+    /// Sets the maximum buffer capacity. Defaults to [`DEFAULT_MAX_SIZE`].
+    pub fn max_capacity(mut self, cap: usize) -> Self {
+        self.max_capacity = Some(cap);
+        self
+    }
+
+    /// Builds the [`DynBufReader`] with the configured settings.
+    pub fn build(self) -> DynBufReader<R> {
+        let buffer = match self.initial_capacity {
             Some(cap) => Buffer::with_capacity(cap),
             None => Buffer::new(),
         };
-        let max_capacity = max_capacity
+        let max_capacity = self
+            .max_capacity
             .map_or(DEFAULT_MAX_SIZE, Buffer::cap_up)
             .max(buffer.cap());
 
         DynBufReader {
             buffer,
             max_capacity,
-            reader,
+            reader: self.reader,
         }
     }
 }
