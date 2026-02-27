@@ -50,6 +50,7 @@ impl<R: Read> DynBufReader<R> {
 ///
 /// Both capacities are rounded up to implementation-specific alignment boundaries.
 /// If `max_capacity` is less than `initial_capacity`, it is raised to match.
+#[derive(Debug, Clone)]
 #[must_use]
 pub struct DynBufReaderBuilder<R> {
     reader: R,
@@ -93,7 +94,6 @@ impl<R> DynBufReader<R> {
     /// Unwraps this `DynBufReader`, returning the underlying reader.
     ///
     /// Any buffered data is discarded.
-    #[inline]
     pub fn into_inner(self) -> R {
         self.reader
     }
@@ -101,7 +101,6 @@ impl<R> DynBufReader<R> {
 
 impl<R: ?Sized> DynBufReader<R> {
     /// Returns a reference to the underlying reader.
-    #[inline]
     pub fn get_ref(&self) -> &R {
         &self.reader
     }
@@ -110,13 +109,11 @@ impl<R: ?Sized> DynBufReader<R> {
     ///
     /// It is inadvisable to directly read from the underlying reader, as data
     /// that has already been buffered will be lost.
-    #[inline]
     pub fn get_mut(&mut self) -> &mut R {
         &mut self.reader
     }
 
     /// Returns the maximum buffer capacity configured for this reader.
-    #[inline]
     pub fn max_capacity(&self) -> usize {
         self.max_capacity
     }
