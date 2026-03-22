@@ -14,6 +14,14 @@
 use super::*;
 use crate::constants::{CHUNK_SIZE, PRACTICAL_MAX_SIZE};
 use std::io::{self, Cursor, Read};
+use std::mem::MaybeUninit;
+
+/// Helper to write a `&[u8]` slice into a `&mut [MaybeUninit<u8>]` slice.
+fn write_bytes(dst: &mut [MaybeUninit<u8>], src: &[u8]) {
+    for (d, &s) in dst.iter_mut().zip(src) {
+        d.write(s);
+    }
+}
 
 /// A reader that returns `Interrupted` once, then delegates to inner.
 pub(crate) struct InterruptOnceReader<R> {
@@ -46,7 +54,9 @@ impl Buffer {
         reason = "Used in tests only, so it being unsafe is fine"
     )]
     pub fn inject_test_data(&mut self, data: &[u8]) {
-        self.buf[..data.len()].copy_from_slice(data);
+        for (dst, &src) in self.buf[..data.len()].iter_mut().zip(data) {
+            dst.write(src);
+        }
         self.len = data.len();
         self.pos = 0;
     }
@@ -147,7 +157,7 @@ fn test_buffer_buf() {
 
     // Manually push data to internal vec for testing
     let data = "Hello, World!";
-    buffer.buf[..data.len()].copy_from_slice(data.as_bytes());
+    write_bytes(&mut buffer.buf[..data.len()], data.as_bytes());
 
     // Update len to make data visible
     buffer.len = data.len();
@@ -347,7 +357,7 @@ fn test_buffer_compact() {
     // Manually push data to internal vec for testing
     let raw = "Hello, World!".repeat(36); // 13 × 36 > 456
     let data = str::from_utf8(&raw.as_bytes()[..456]).unwrap(); // Get a 456 byte string
-    buffer.buf[..data.len()].copy_from_slice(data.as_bytes());
+    write_bytes(&mut buffer.buf[..data.len()], data.as_bytes());
 
     // Why 456? Because I said so…
 
@@ -559,7 +569,7 @@ fn test_buffer_shrink_targeted() {
         .take(250 * CHUNK_SIZE - 123)
         .copied()
         .collect::<Vec<_>>();
-    buffer.buf[..(250 * CHUNK_SIZE - 123)].copy_from_slice(data.as_slice());
+    write_bytes(&mut buffer.buf[..(250 * CHUNK_SIZE - 123)], data.as_slice());
     buffer.len = 250 * CHUNK_SIZE - 123;
 
     // Double-check the starting cap after our meddling
@@ -1583,9 +1593,9 @@ fn test_buffer_as_str_from() {
 
     // Test with invalid UTF-8 in the middle (not at boundaries)
     let mut buffer = Buffer::new();
-    buffer.buf[0..5].copy_from_slice(b"Hello");
-    buffer.buf[5] = 0b1000_0000; // Invalid continuation byte without start
-    buffer.buf[6..12].copy_from_slice(b"World!");
+    write_bytes(&mut buffer.buf[0..5], b"Hello");
+    buffer.buf[5] = MaybeUninit::new(0b1000_0000); // Invalid continuation byte without start
+    write_bytes(&mut buffer.buf[6..12], b"World!");
     buffer.len = 12;
 
     let result = buffer.as_str_from(0);

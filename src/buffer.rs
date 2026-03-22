@@ -29,6 +29,8 @@
 use crate::constants::{CHUNK_SIZE, PRACTICAL_MAX_SIZE};
 use std::cmp;
 use std::io::{self, Read};
+use std::mem::MaybeUninit;
+use std::{fmt, ops};
 
 /// Result type for bounded fill operations.
 ///
@@ -156,10 +158,12 @@ enum ReadOnce {
 ///
 /// This buffer maintains the invariant `0 <= self.pos <= self.len <= self.cap == self.buf.len() <=
 /// self.buf.capacity()` at all times, ensuring memory safety and correctness of all operations.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct Buffer {
     /// Internal buffer storage.
-    buf: Vec<u8>,
+    ///
+    /// The region `0..len` is always initialized. The region `len..cap` may be uninitialized.
+    buf: Vec<MaybeUninit<u8>>,
     /// Logical capacity of the buffer (may be slightly less than `buf.capacity()`).
     cap: usize,
     /// Number of bytes currently stored in the buffer.
@@ -168,6 +172,28 @@ pub struct Buffer {
     pos: usize,
 }
 
+impl fmt::Debug for Buffer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Buffer")
+            .field("buf", &self.as_init())
+            .field("cap", &self.cap)
+            .field("len", &self.len)
+            .field("pos", &self.pos)
+            .finish()
+    }
+}
+
+impl PartialEq for Buffer {
+    fn eq(&self, other: &Self) -> bool {
+        self.cap == other.cap
+            && self.len == other.len
+            && self.pos == other.pos
+            && self.as_init() == other.as_init()
+    }
+}
+
+impl Eq for Buffer {}
+
 impl Default for Buffer {
     fn default() -> Self {
         Self::new()
@@ -175,6 +201,37 @@ impl Default for Buffer {
 }
 
 impl Buffer {
+    /// Returns `0..self.len` as `&[u8]`.
+    ///
+    /// Sound because the buffer invariant guarantees this region is initialized.
+    #[expect(
+        unsafe_code,
+        clippy::as_conversions,
+        clippy::indexing_slicing,
+        reason = "Region 0..len is initialized per the buffer invariant"
+    )]
+    #[inline]
+    fn as_init(&self) -> &[u8] {
+        let slice = &self.buf[..self.len];
+        unsafe { &*(std::ptr::from_ref::<[MaybeUninit<u8>]>(slice) as *const [u8]) }
+    }
+
+    /// Returns `self.buf[range]` as `&mut [u8]` for passing to [`Read::read`].
+    ///
+    /// The write-to region `len..cap` is only ever written into, never read.
+    /// This is the standard ecosystem pattern until `Read::read_buf` stabilizes.
+    #[expect(
+        unsafe_code,
+        clippy::as_conversions,
+        clippy::indexing_slicing,
+        reason = "Write-only slice for Read::read; standard pattern until Read::read_buf stabilizes"
+    )]
+    #[inline]
+    fn as_mut_bytes(&mut self, range: ops::Range<usize>) -> &mut [u8] {
+        let slice = &mut self.buf[range];
+        unsafe { &mut *(std::ptr::from_mut::<[MaybeUninit<u8>]>(slice) as *mut [u8]) }
+    }
+
     /// Creates a new buffer with default capacity.
     ///
     /// The buffer is initialized with a capacity of [`CHUNK_SIZE`].
@@ -189,7 +246,7 @@ impl Buffer {
     #[inline]
     pub fn new() -> Self {
         Self {
-            buf: vec![0; CHUNK_SIZE],
+            buf: vec![MaybeUninit::uninit(); CHUNK_SIZE],
             cap: CHUNK_SIZE,
             len: 0,
             pos: 0,
@@ -220,7 +277,7 @@ impl Buffer {
         let cap = Self::cap_up_linear(capacity);
 
         Self {
-            buf: vec![0; cap],
+            buf: vec![MaybeUninit::uninit(); cap],
             cap,
             len: 0,
             pos: 0,
@@ -246,10 +303,9 @@ impl Buffer {
     /// assert_eq!(slice.len(), 13); // Full data length
     /// // Access unconsumed data: &slice[buffer.pos()..]
     /// ```
-    #[expect(clippy::indexing_slicing, reason = "Safe by invariant")]
     #[inline]
     pub fn buf(&self) -> &[u8] {
-        &self.buf[..self.len]
+        self.as_init()
     }
 
     /// Returns the current capacity of the buffer in bytes.
@@ -582,7 +638,7 @@ impl Buffer {
         let next = Self::cap_up(target);
 
         if next > self.cap {
-            self.buf.resize(next, 0);
+            self.buf.resize(next, MaybeUninit::uninit());
             self.cap = next;
         }
     }
@@ -707,11 +763,7 @@ impl Buffer {
     /// # Errors
     ///
     /// Returns any I/O errors encountered while reading from the reader.
-    #[expect(
-        clippy::arithmetic_side_effects,
-        clippy::indexing_slicing,
-        reason = "Safe by invariant"
-    )]
+    #[expect(clippy::arithmetic_side_effects, reason = "Safe by invariant")]
     pub fn fill(&mut self, mut reader: impl Read) -> io::Result<FillResult> {
         let mut bytes_read = 0;
 
@@ -723,7 +775,7 @@ impl Buffer {
         }
 
         // Read to fill the remaining space.
-        bytes_read += reader.read(&mut self.buf[self.len..self.cap])?;
+        bytes_read += reader.read(self.as_mut_bytes(self.len..self.cap))?;
 
         // Increase the length by the number of bytes read.
         self.len += bytes_read;
@@ -761,11 +813,7 @@ impl Buffer {
     /// # Errors
     ///
     /// Returns any I/O errors encountered while reading from the reader.
-    #[expect(
-        clippy::arithmetic_side_effects,
-        clippy::indexing_slicing,
-        reason = "Safe by invariant"
-    )]
+    #[expect(clippy::arithmetic_side_effects, reason = "Safe by invariant")]
     pub fn fill_amount(&mut self, mut reader: impl Read, amt: usize) -> io::Result<FillResult> {
         // Check if the requested amount exceeds what we can possibly accommodate
         if amt > PRACTICAL_MAX_SIZE - self.len {
@@ -790,7 +838,7 @@ impl Buffer {
         // Loop until we've read enough bytes or EOF
         while total_bytes_read < amt {
             // Fill all available space
-            let bytes_read = reader.read(&mut self.buf[self.len..self.cap])?;
+            let bytes_read = reader.read(self.as_mut_bytes(self.len..self.cap))?;
 
             if bytes_read == 0 {
                 // We've hit EOF
@@ -837,11 +885,7 @@ impl Buffer {
     ///
     /// Returns [`io::ErrorKind::UnexpectedEof`] if the reader cannot provide the full amount.
     /// On error, the buffer contents are unspecified (some bytes may have been read).
-    #[expect(
-        clippy::arithmetic_side_effects,
-        clippy::indexing_slicing,
-        reason = "Safe by invariant"
-    )]
+    #[expect(clippy::arithmetic_side_effects, reason = "Safe by invariant")]
     pub fn fill_exact(&mut self, mut reader: impl Read, amt: usize) -> io::Result<()> {
         // Check if the requested amount exceeds what we can possibly accommodate
         if amt > PRACTICAL_MAX_SIZE - self.len {
@@ -861,7 +905,7 @@ impl Buffer {
         self.grow_targeted(target);
 
         // Get exact free slice
-        let unfilled = &mut self.buf[self.len..target];
+        let unfilled = self.as_mut_bytes(self.len..target);
         debug_assert_eq!(unfilled.len(), amt);
 
         // Read exactly the requested amount of bytes
@@ -884,11 +928,7 @@ impl Buffer {
     ///
     /// On success the read bytes are appended (`self.len` is advanced) and
     /// `*total_bytes_read` is incremented.
-    #[expect(
-        clippy::arithmetic_side_effects,
-        clippy::indexing_slicing,
-        reason = "Safe by invariant"
-    )]
+    #[expect(clippy::arithmetic_side_effects, reason = "Safe by invariant")]
     fn read_once(
         &mut self,
         reader: &mut impl Read,
@@ -909,7 +949,7 @@ impl Buffer {
 
         // Fill all available space, retrying on interrupt
         let bytes_read = loop {
-            match reader.read(&mut self.buf[self.len..self.cap]) {
+            match reader.read(self.as_mut_bytes(self.len..self.cap)) {
                 Ok(n) => break n,
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
                 Err(e) => return Err(e),
@@ -1029,7 +1069,7 @@ impl Buffer {
 
         loop {
             // Check the predicate on current unconsumed data before reading more
-            if !predicate(&self.buf[self.pos..self.len]) {
+            if !predicate(&self.as_init()[self.pos..]) {
                 break;
             }
 
@@ -1096,7 +1136,7 @@ impl Buffer {
 
         loop {
             // Check the unchecked portion for the delimiter before reading more
-            if self.buf[check_pos..self.len].contains(&byte) {
+            if self.as_init()[check_pos..].contains(&byte) {
                 break;
             }
 
@@ -1156,8 +1196,13 @@ impl Buffer {
         // Get the offset position clamped by: self.pos <= pos <= self.len
         let offset = cmp::max(offset, self.pos).min(self.len);
 
+        // Past-the-end position has no byte to inspect; return as-is
+        if offset >= self.len {
+            return offset;
+        }
+
         // Find the position of first byte that is not a UTF-8 continuation byte
-        self.buf[self.pos..=offset]
+        self.as_init()[self.pos..=offset]
             .iter()
             .rev()
             // If the top two bits are 10 then it's a continuation byte, this bitmask checks that
@@ -1200,7 +1245,7 @@ impl Buffer {
         let offset = cmp::max(offset, self.pos).min(self.len);
 
         // Find the position of first byte that is not a UTF-8 continuation byte
-        self.buf[offset..self.len]
+        self.as_init()[offset..]
             .iter()
             // If the top two bits are 10 then it's a continuation byte, this bitmask checks that
             .position(|&b| b & 0b1100_0000 != 0b1000_0000)
@@ -1266,7 +1311,7 @@ impl Buffer {
 
         let mut end = self.len;
         while end > start {
-            match str::from_utf8(&self.buf[start..end]) {
+            match str::from_utf8(&self.as_init()[start..end]) {
                 Ok(s) => return Ok(s),
                 Err(e) => {
                     // If we have an invalid UTF-8 sequence in the middle
