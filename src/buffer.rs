@@ -26,7 +26,7 @@
 //! assert_eq!(buffer.len() - buffer.pos(), 2 * CHUNK_SIZE);
 //! ```
 
-use crate::constants::{CHUNK_SIZE, PRACTICAL_MAX_SIZE};
+use crate::constants::{CHUNK_SIZE, THEORETICAL_MAX_SIZE};
 use std::cmp;
 use std::io::{self, Read};
 
@@ -84,7 +84,7 @@ pub enum UnboundedFillResult {
 
     /// The operation stopped because the maximum capacity was reached.
     ///
-    /// The buffer cannot grow beyond the specified maximum capacity (or [`PRACTICAL_MAX_SIZE`]
+    /// The buffer cannot grow beyond the specified maximum capacity (or [`THEORETICAL_MAX_SIZE`]
     /// if no maximum was specified).
     ///
     /// Contains the number of bytes successfully read before the capacity limit was reached.
@@ -415,7 +415,7 @@ impl Buffer {
     ///
     /// This method implements the linear shrinking strategy used by the buffer. It rounds down
     /// the given capacity to the nearest multiple of [`CHUNK_SIZE`], with a minimum of
-    /// [`CHUNK_SIZE`] and a maximum of [`PRACTICAL_MAX_SIZE`].
+    /// [`CHUNK_SIZE`] and a maximum of [`THEORETICAL_MAX_SIZE`].
     ///
     /// # Use Cases
     ///
@@ -440,7 +440,7 @@ impl Buffer {
     #[expect(clippy::arithmetic_side_effects, reason = "Safe by bounds checks")]
     pub fn cap_down(capacity: usize) -> usize {
         // The bounds checks prevent both underflow and overflow problems by setting the minimum at
-        // `CHUNK_SIZE` and maximum at [`PRACTICAL_MAX_SIZE`]. The smallest value the calculation
+        // `CHUNK_SIZE` and maximum at [`THEORETICAL_MAX_SIZE`]. The smallest value the calculation
         // can reach is `CHUNK_SIZE` when `capacity` is less than `2 * CHUNK_SIZE`.
 
         // Min bounds check
@@ -449,8 +449,8 @@ impl Buffer {
         }
 
         // Max bounds check
-        if capacity >= PRACTICAL_MAX_SIZE {
-            return PRACTICAL_MAX_SIZE;
+        if capacity >= THEORETICAL_MAX_SIZE {
+            return THEORETICAL_MAX_SIZE;
         }
 
         // Round down `capacity` to the nearest multiple of `CHUNK_SIZE`
@@ -462,7 +462,7 @@ impl Buffer {
     /// This method implements the exponential growth strategy used by the buffer. It rounds up
     /// the given capacity to the nearest power-of-2 multiple of [`CHUNK_SIZE`] (e.g.,
     /// `CHUNK_SIZE`, `2 * CHUNK_SIZE`, `4 * CHUNK_SIZE`, etc.), with a minimum of [`CHUNK_SIZE`]
-    /// and a maximum of [`PRACTICAL_MAX_SIZE`].
+    /// and a maximum of [`THEORETICAL_MAX_SIZE`].
     ///
     /// # Use Cases
     ///
@@ -489,12 +489,12 @@ impl Buffer {
     #[expect(clippy::arithmetic_side_effects, reason = "Safe by bounds checks")]
     pub fn cap_up(capacity: usize) -> usize {
         // The bounds checks prevent both underflow and overflow problems by setting the minimum at
-        // `CHUNK_SIZE` and maximum at [`PRACTICAL_MAX_SIZE`]. The early return for large capacities
+        // `CHUNK_SIZE` and maximum at [`THEORETICAL_MAX_SIZE`]. The early return for large capacities
         // ensures that power-of-two calculations cannot overflow.
 
         // Max bounds check
-        if capacity >= PRACTICAL_MAX_SIZE >> 1 {
-            return PRACTICAL_MAX_SIZE;
+        if capacity >= THEORETICAL_MAX_SIZE >> 1 {
+            return THEORETICAL_MAX_SIZE;
         }
 
         // Min bounds check
@@ -510,7 +510,7 @@ impl Buffer {
     ///
     /// This method provides linear capacity rounding, useful for precise capacity allocation.
     /// It rounds up the given capacity to the nearest multiple of [`CHUNK_SIZE`], with a minimum
-    /// of [`CHUNK_SIZE`] and a maximum of [`PRACTICAL_MAX_SIZE`].
+    /// of [`CHUNK_SIZE`] and a maximum of [`THEORETICAL_MAX_SIZE`].
     ///
     /// Unlike [`cap_up`](Self::cap_up) which uses exponential (power-of-2) rounding, this method
     /// provides exact multiples of [`CHUNK_SIZE`].
@@ -539,11 +539,11 @@ impl Buffer {
     #[expect(clippy::arithmetic_side_effects, reason = "Safe by bounds checks")]
     pub fn cap_up_linear(capacity: usize) -> usize {
         // The bounds checks prevent both underflow and overflow problems by setting the minimum at
-        // `CHUNK_SIZE` and maximum at [`PRACTICAL_MAX_SIZE`].
+        // `CHUNK_SIZE` and maximum at [`THEORETICAL_MAX_SIZE`].
 
         // Max bounds check
-        if capacity >= PRACTICAL_MAX_SIZE {
-            return PRACTICAL_MAX_SIZE;
+        if capacity >= THEORETICAL_MAX_SIZE {
+            return THEORETICAL_MAX_SIZE;
         }
 
         // Min bounds check
@@ -559,7 +559,7 @@ impl Buffer {
     ///
     /// If the buffer's current capacity already meets or exceeds `target`, no operation is
     /// performed. Otherwise, grows to the nearest power-of-2 multiple of [`CHUNK_SIZE`] that
-    /// accommodates `target`, up to a maximum of [`PRACTICAL_MAX_SIZE`].
+    /// accommodates `target`, up to a maximum of [`THEORETICAL_MAX_SIZE`].
     ///
     /// For unconditional single-step growth to the next power-of-2 multiple, use
     /// [`grow()`](Self::grow).
@@ -590,7 +590,7 @@ impl Buffer {
     /// Grows the buffer capacity to the next power-of-2 multiple of [`CHUNK_SIZE`].
     ///
     /// The capacity grows exponentially (e.g., `CHUNK_SIZE` → `2 * CHUNK_SIZE` → `4 * CHUNK_SIZE`)
-    /// up to [`PRACTICAL_MAX_SIZE`].
+    /// up to [`THEORETICAL_MAX_SIZE`].
     ///
     /// # Examples
     ///
@@ -662,7 +662,7 @@ impl Buffer {
     /// ```
     #[inline]
     pub fn shrink_targeted(&mut self, target: usize) {
-        // The length maxes out at [`PRACTICAL_MAX_SIZE`] so adding `CHUNK_SIZE` can't overflow.
+        // The length maxes out at [`THEORETICAL_MAX_SIZE`] so adding `CHUNK_SIZE` can't overflow.
 
         // Round `self.len()` up to the next chunk boundary to ensure `self.cap()` >= `self.len()`
         let mut next = Self::cap_up_linear(self.len);
@@ -768,7 +768,7 @@ impl Buffer {
     )]
     pub fn fill_amount(&mut self, mut reader: impl Read, amt: usize) -> io::Result<FillResult> {
         // Check if the requested amount exceeds what we can possibly accommodate
-        if amt > PRACTICAL_MAX_SIZE - self.len {
+        if amt > THEORETICAL_MAX_SIZE - self.len {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "requested amount exceeds maximum buffer capacity",
@@ -844,7 +844,7 @@ impl Buffer {
     )]
     pub fn fill_exact(&mut self, mut reader: impl Read, amt: usize) -> io::Result<()> {
         // Check if the requested amount exceeds what we can possibly accommodate
-        if amt > PRACTICAL_MAX_SIZE - self.len {
+        if amt > THEORETICAL_MAX_SIZE - self.len {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "requested amount exceeds maximum buffer capacity",
@@ -1020,7 +1020,7 @@ impl Buffer {
         mut predicate: impl FnMut(&[u8]) -> bool,
         growth_limit: Option<usize>,
     ) -> io::Result<UnboundedFillResult> {
-        let max_cap = growth_limit.unwrap_or(PRACTICAL_MAX_SIZE);
+        let max_cap = growth_limit.unwrap_or(THEORETICAL_MAX_SIZE);
 
         // Capture starting capacity to use as shrink limit
         let starting_capacity = self.cap;
@@ -1085,7 +1085,7 @@ impl Buffer {
         byte: u8,
         growth_limit: Option<usize>,
     ) -> io::Result<UnboundedFillResult> {
-        let max_cap = growth_limit.unwrap_or(PRACTICAL_MAX_SIZE);
+        let max_cap = growth_limit.unwrap_or(THEORETICAL_MAX_SIZE);
 
         // Capture starting capacity to use as shrink limit
         let starting_capacity = self.cap;
@@ -1354,7 +1354,7 @@ impl Buffer {
             return Ok(UnboundedFillResult::Complete(0));
         }
 
-        let max_cap = growth_limit.unwrap_or(PRACTICAL_MAX_SIZE);
+        let max_cap = growth_limit.unwrap_or(THEORETICAL_MAX_SIZE);
 
         // Capture starting capacity to use as shrink limit
         let starting_capacity = self.cap;

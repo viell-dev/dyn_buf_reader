@@ -12,7 +12,7 @@
 )]
 
 use super::*;
-use crate::constants::{CHUNK_SIZE, PRACTICAL_MAX_SIZE};
+use crate::constants::{CHUNK_SIZE, THEORETICAL_MAX_SIZE};
 use std::io::{self, Cursor, Read};
 
 /// A reader that returns `Interrupted` once, then delegates to inner.
@@ -402,28 +402,34 @@ fn test_buffer_cap_down() {
     assert_eq!(Buffer::cap_down(20 * CHUNK_SIZE + 789), 20 * CHUNK_SIZE);
     assert_eq!(Buffer::cap_down(123 * CHUNK_SIZE + 1234), 123 * CHUNK_SIZE);
     assert_eq!(
-        Buffer::cap_down(PRACTICAL_MAX_SIZE - 1),
-        PRACTICAL_MAX_SIZE - CHUNK_SIZE // Note: `PRACTICAL_MAX_SIZE` is a multiple of `CHUNK_SIZE`
+        Buffer::cap_down(THEORETICAL_MAX_SIZE - 1),
+        THEORETICAL_MAX_SIZE - CHUNK_SIZE // Note: `THEORETICAL_MAX_SIZE` is a multiple of `CHUNK_SIZE`
     );
 
-    // Sizes above `PRACTICAL_MAX_SIZE` should round down to `PRACTICAL_MAX_SIZE` as that's the max
-    assert_eq!(Buffer::cap_down(usize::MAX), PRACTICAL_MAX_SIZE);
+    // Sizes above `THEORETICAL_MAX_SIZE` should round down to `THEORETICAL_MAX_SIZE` as that's the max
+    assert_eq!(Buffer::cap_down(usize::MAX), THEORETICAL_MAX_SIZE);
     assert_eq!(
-        Buffer::cap_down(PRACTICAL_MAX_SIZE + 1234),
-        PRACTICAL_MAX_SIZE
+        Buffer::cap_down(THEORETICAL_MAX_SIZE + 1234),
+        THEORETICAL_MAX_SIZE
     );
-    assert_eq!(Buffer::cap_down(PRACTICAL_MAX_SIZE + 1), PRACTICAL_MAX_SIZE);
+    assert_eq!(
+        Buffer::cap_down(THEORETICAL_MAX_SIZE + 1),
+        THEORETICAL_MAX_SIZE
+    );
 }
 
 #[test]
 fn test_buffer_cap_up() {
-    // Sizes above `PRACTICAL_MAX_SIZE` should round down to `PRACTICAL_MAX_SIZE` as that's the max
-    assert_eq!(Buffer::cap_up(usize::MAX), PRACTICAL_MAX_SIZE);
+    // Sizes above `THEORETICAL_MAX_SIZE` should round down to `THEORETICAL_MAX_SIZE` as that's the max
+    assert_eq!(Buffer::cap_up(usize::MAX), THEORETICAL_MAX_SIZE);
     assert_eq!(
-        Buffer::cap_up(PRACTICAL_MAX_SIZE + 1234),
-        PRACTICAL_MAX_SIZE
+        Buffer::cap_up(THEORETICAL_MAX_SIZE + 1234),
+        THEORETICAL_MAX_SIZE
     );
-    assert_eq!(Buffer::cap_up(PRACTICAL_MAX_SIZE + 1), PRACTICAL_MAX_SIZE);
+    assert_eq!(
+        Buffer::cap_up(THEORETICAL_MAX_SIZE + 1),
+        THEORETICAL_MAX_SIZE
+    );
 
     // Other values should round up to the nearest power-of-2 multiple of `CHUNK_SIZE`
     assert_eq!(Buffer::cap_up(CHUNK_SIZE - 123), CHUNK_SIZE);
@@ -432,8 +438,8 @@ fn test_buffer_cap_up() {
     assert_eq!(Buffer::cap_up(20 * CHUNK_SIZE - 789), 32 * CHUNK_SIZE);
     assert_eq!(Buffer::cap_up(123 * CHUNK_SIZE - 1234), 128 * CHUNK_SIZE);
     assert_eq!(
-        Buffer::cap_up(PRACTICAL_MAX_SIZE - 1),
-        PRACTICAL_MAX_SIZE // Note: `PRACTICAL_MAX_SIZE` is a multiple of `CHUNK_SIZE`
+        Buffer::cap_up(THEORETICAL_MAX_SIZE - 1),
+        THEORETICAL_MAX_SIZE // Note: `THEORETICAL_MAX_SIZE` is a multiple of `CHUNK_SIZE`
     );
 
     // Sizes below `CHUNK_SIZE` should round up to `CHUNK_SIZE` as that's the min
@@ -443,15 +449,15 @@ fn test_buffer_cap_up() {
 
 #[test]
 fn test_buffer_cap_up_linear() {
-    // Sizes above `PRACTICAL_MAX_SIZE` should round down to `PRACTICAL_MAX_SIZE` as that's the max
-    assert_eq!(Buffer::cap_up_linear(usize::MAX), PRACTICAL_MAX_SIZE);
+    // Sizes above `THEORETICAL_MAX_SIZE` should round down to `THEORETICAL_MAX_SIZE` as that's the max
+    assert_eq!(Buffer::cap_up_linear(usize::MAX), THEORETICAL_MAX_SIZE);
     assert_eq!(
-        Buffer::cap_up_linear(PRACTICAL_MAX_SIZE + 1234),
-        PRACTICAL_MAX_SIZE
+        Buffer::cap_up_linear(THEORETICAL_MAX_SIZE + 1234),
+        THEORETICAL_MAX_SIZE
     );
     assert_eq!(
-        Buffer::cap_up_linear(PRACTICAL_MAX_SIZE + 1),
-        PRACTICAL_MAX_SIZE
+        Buffer::cap_up_linear(THEORETICAL_MAX_SIZE + 1),
+        THEORETICAL_MAX_SIZE
     );
 
     // Other values should round up to nearest linear multiple of `CHUNK_SIZE`
@@ -467,8 +473,8 @@ fn test_buffer_cap_up_linear() {
         123 * CHUNK_SIZE
     );
     assert_eq!(
-        Buffer::cap_up_linear(PRACTICAL_MAX_SIZE - 1),
-        PRACTICAL_MAX_SIZE // Note: `PRACTICAL_MAX_SIZE` is a multiple of `CHUNK_SIZE`
+        Buffer::cap_up_linear(THEORETICAL_MAX_SIZE - 1),
+        THEORETICAL_MAX_SIZE // Note: `THEORETICAL_MAX_SIZE` is a multiple of `CHUNK_SIZE`
     );
 
     // Sizes below `CHUNK_SIZE` should round up to `CHUNK_SIZE` as that's the min
@@ -733,10 +739,10 @@ fn test_buffer_fill_amount() {
     buffer.discard();
 
     // Test error when requesting more than the buffer can accommodate
-    // The buffer cannot grow beyond `PRACTICAL_MAX_SIZE`, so `amt > PRACTICAL_MAX_SIZE - self.len`
+    // The buffer cannot grow beyond `THEORETICAL_MAX_SIZE`, so `amt > THEORETICAL_MAX_SIZE - self.len`
     // is an unfulfillable request
     let cur = Cursor::new(&data);
-    let result = buffer.fill_amount(cur, PRACTICAL_MAX_SIZE + 1);
+    let result = buffer.fill_amount(cur, THEORETICAL_MAX_SIZE + 1);
 
     // We should get an InvalidInput error
     assert!(result.is_err());
@@ -747,7 +753,7 @@ fn test_buffer_fill_amount() {
     buffer.fill_amount(cur, CHUNK_SIZE).unwrap(); // Add some data first
 
     let cur = Cursor::new(&data);
-    let result = buffer.fill_amount(cur, PRACTICAL_MAX_SIZE); // Now this exceeds remaining capacity
+    let result = buffer.fill_amount(cur, THEORETICAL_MAX_SIZE); // Now this exceeds remaining capacity
 
     // We should get an InvalidInput error
     assert!(result.is_err());
@@ -806,10 +812,10 @@ fn test_buffer_fill_exact() {
     buffer.discard();
 
     // Test error when requesting more than the buffer can accommodate
-    // The buffer cannot grow beyond `PRACTICAL_MAX_SIZE`, so `amt > PRACTICAL_MAX_SIZE - self.len`
+    // The buffer cannot grow beyond `THEORETICAL_MAX_SIZE`, so `amt > THEORETICAL_MAX_SIZE - self.len`
     // is an unfulfillable request
     let cur = Cursor::new(&data);
-    let result = buffer.fill_exact(cur, PRACTICAL_MAX_SIZE + 1);
+    let result = buffer.fill_exact(cur, THEORETICAL_MAX_SIZE + 1);
 
     // We should get an InvalidInput error
     assert!(result.is_err());
@@ -820,7 +826,7 @@ fn test_buffer_fill_exact() {
     buffer.fill_exact(cur, CHUNK_SIZE).unwrap(); // Add some data first
 
     let cur = Cursor::new(&data);
-    let result = buffer.fill_exact(cur, PRACTICAL_MAX_SIZE); // Now this exceeds remaining capacity
+    let result = buffer.fill_exact(cur, THEORETICAL_MAX_SIZE); // Now this exceeds remaining capacity
 
     // We should get an InvalidInput error
     assert!(result.is_err());
