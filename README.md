@@ -85,3 +85,9 @@ The MSRV is **1.87.0**. This is checked in CI across Linux, Windows, and macOS.
 ## License
 
 Licensed under the GNU General Public License v3.0 ([COPYING.md](COPYING.md))
+
+## AI Use Disclaimer
+
+AI tools are used during the development of this project. However; every line of
+code and documentation is meticulously reviewed, audited, and edited to fit my
+personal coding style and quality standards.
