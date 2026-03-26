@@ -1,29 +1,29 @@
-//! High-performance buffer with dynamic capacity management.
+//! Buffer with dynamic capacity management.
 //!
 //! The [`Buffer`] type provides standalone buffered I/O operations with both manual and automatic
-//! growth and shrinking of it's capacity. It is used as the internal buffer for
+//! growth and shrinking of its capacity. It is used as the internal buffer for
 //! [`DynBufReader`](crate::DynBufReader).
 //!
 //! # Example
 //!
 //! ```
-//! use dyn_buf_reader::buffer::{Buffer, FillResult};
-//! use dyn_buf_reader::constants::CHUNK_SIZE;
+//! use dyn_buf_reader::buffer::Buffer;
 //! use std::io::Cursor;
 //!
-//! let data = vec![0u8; 3 * CHUNK_SIZE];
-//! let cur = Cursor::new(data);
 //! let mut buffer = Buffer::new();
+//! let mut reader = Cursor::new(b"Hello, World!");
 //!
-//! // Read a specific amount
-//! let result = buffer.fill_amount(cur, 3 * CHUNK_SIZE).unwrap();
-//! assert!(matches!(result, FillResult::Complete(_)));
+//! // Fill the buffer from a reader
+//! buffer.fill(&mut reader).unwrap();
 //!
-//! // Consume what we processed
-//! buffer.consume(CHUNK_SIZE);
+//! // Inspect the buffered data
+//! let data = buffer.buf();
+//! assert_eq!(data, b"Hello, World!");
 //!
-//! // Check remaining data
-//! assert_eq!(buffer.len() - buffer.pos(), 2 * CHUNK_SIZE);
+//! // Find the start of the second word and consume past it
+//! let offset = data.iter().position(|&b| b == b' ').unwrap() + 1;
+//! buffer.consume(offset);
+//! assert_eq!(&buffer.buf()[buffer.pos()..], b"World!");
 //! ```
 
 use crate::constants::{CHUNK_SIZE, THEORETICAL_MAX_SIZE};
@@ -32,19 +32,17 @@ use std::io::{self, Read};
 
 /// Result type for bounded fill operations.
 ///
-/// Returned by operations that read within a known limit.
-///
 /// The contained byte count represents the total bytes read from the reader.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FillResult {
-    /// The operation completed successfully.
+    /// The requested fill completed in full without reaching EOF.
     ///
-    /// Contains the byte count.
+    /// Contains the total bytes read.
     Complete(usize),
 
-    /// The operation stopped because end-of-file was reached.
+    /// The reader reached end-of-file before the fill could complete.
     ///
-    /// Contains the number of bytes successfully read before EOF was reached.
+    /// Contains the total bytes read before EOF.
     Eof(usize),
 }
 
@@ -67,27 +65,22 @@ impl FillResult {
 
 /// Result type for unbounded fill operations.
 ///
-/// Returned by operations that read without a known limit.
-///
 /// The contained byte count represents the total bytes read from the reader.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnboundedFillResult {
-    /// The operation completed successfully.
+    /// The requested fill completed in full without reaching EOF or a growth limit.
     ///
-    /// Contains the byte count.
+    /// Contains the total bytes read.
     Complete(usize),
 
-    /// The operation stopped because end-of-file was reached.
+    /// The reader reached end-of-file before the fill could complete.
     ///
-    /// Contains the number of bytes successfully read before EOF was reached.
+    /// Contains the total bytes read before EOF.
     Eof(usize),
 
-    /// The operation stopped because the maximum capacity was reached.
+    /// The operation was capped before it could complete.
     ///
-    /// The buffer cannot grow beyond the specified maximum capacity (or [`THEORETICAL_MAX_SIZE`]
-    /// if no maximum was specified).
-    ///
-    /// Contains the number of bytes successfully read before the capacity limit was reached.
+    /// Contains the total bytes read before the limit was reached.
     Capped(usize),
 }
 
@@ -131,26 +124,14 @@ enum ReadOnce {
 
 /// A dynamically sized buffer with chunked capacity management.
 ///
-/// `Buffer` provides high-performance buffered I/O operations with automatic capacity adjustment.
-/// It grows and shrinks its capacity based on usage patterns, making it ideal for scenarios with
-/// varying data sizes. This type is also used as the internal buffer for
+/// Provides buffered I/O with automatic capacity growth. Used as the internal buffer for
 /// [`DynBufReader`](crate::DynBufReader).
 ///
 /// # Capacity Management
 ///
-/// The buffer uses a chunk-based growth and shrinking strategy:
-/// - **Growth**: Expands in exponential steps (powers of 2) aligned to [`CHUNK_SIZE`] boundaries,
-///   allowing efficient memory allocation for large reads.
-/// - **Shrinking**: Contracts linearly to `CHUNK_SIZE` multiples, freeing unused memory while
-///   maintaining alignment with typical page sizes for optimal I/O performance.
-/// - **Alignment**: All capacities are multiples of `CHUNK_SIZE`, which is tuned for common
-///   system page sizes.
-///
-/// # Use Cases
-///
-/// - Large file processing with dynamic memory needs
-/// - Stream buffering with arbitrary peek-ahead requirements
-/// - Any scenario requiring efficient buffered reads with automatic capacity adjustment
+/// All capacities are multiples of [`CHUNK_SIZE`].
+/// - **Growth**: Automatic and exponential, rounds up to power-of-two multiples of `CHUNK_SIZE`.
+/// - **Shrinking: Manual and linear, rounds down to the nearest `CHUNK_SIZE` multiple.
 ///
 /// # Invariants
 ///
