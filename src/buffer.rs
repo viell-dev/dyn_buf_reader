@@ -114,11 +114,13 @@ impl From<FillResult> for UnboundedFillResult {
 /// Result of a single grow-and-read cycle performed by [`Buffer::read_once`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ReadOnce {
-    /// Successfully read bytes. `Buffer::len` and `total_bytes_read` have been updated.
+    /// Successfully read bytes.
+    ///
+    /// `Buffer::len` and `total_bytes_read` have been updated.
     Read,
-    /// The reader returned 0 bytes — end-of-file.
+    /// The reader returned 0 bytes.
     Eof,
-    /// The buffer is full and the cap-check closure indicated it cannot grow further.
+    /// The buffer is full and isn't allowed to grow further.
     Capped,
 }
 
@@ -141,7 +143,9 @@ enum ReadOnce {
 pub struct Buffer {
     /// Internal buffer storage.
     buf: Vec<u8>,
-    /// Logical capacity of the buffer (may be slightly less than `buf.capacity()`).
+    /// Logical capacity of the buffer.
+    ///
+    /// May be slightly less than `buf.capacity()`.
     cap: usize,
     /// Number of bytes currently stored in the buffer.
     len: usize,
@@ -156,7 +160,7 @@ impl Default for Buffer {
 }
 
 impl Buffer {
-    /// Creates a new buffer with default capacity.
+    /// Creates a new buffer with the default capacity.
     ///
     /// The buffer is initialized with a capacity of [`CHUNK_SIZE`].
     ///
@@ -179,8 +183,8 @@ impl Buffer {
 
     /// Creates a new buffer with at least the specified capacity.
     ///
-    /// The actual capacity will be rounded up to the nearest [`CHUNK_SIZE`] multiple
-    /// that can accommodate the requested capacity.
+    /// The actual capacity will be rounded up to the nearest [`CHUNK_SIZE`] multiple that can
+    /// accommodate the requested capacity.
     ///
     /// # Examples
     ///
@@ -191,7 +195,7 @@ impl Buffer {
     /// assert!(buffer.cap() >= 100);
     /// assert_eq!(buffer.cap() % CHUNK_SIZE, 0); // Aligned to CHUNK_SIZE
     ///
-    /// // Gets exact multiple, not power-of-2
+    /// // Gets exact multiple, not power-of-two
     /// let buffer = Buffer::with_capacity(5 * CHUNK_SIZE);
     /// assert_eq!(buffer.cap(), 5 * CHUNK_SIZE);
     /// ```
@@ -208,11 +212,10 @@ impl Buffer {
         }
     }
 
-    /// Returns a reference to the buffer contents from the beginning up to the current length.
+    /// Returns a slice to the content in the internal buffer.
     ///
-    /// This returns a slice of the internal buffer from index 0 to [`len()`](Self::len),
-    /// which includes both consumed and unconsumed data. Use with [`pos()`](Self::pos) to access
-    /// either unconsumed `pos()..` or consumed `..pos()` data as needed.
+    /// This slice includes both consumed and unconsumed data, use with [`pos()`](Self::pos) to
+    /// access either unconsumed (`pos()..`) or consumed (`..pos()`) data as needed.
     ///
     /// # Examples
     ///
@@ -235,42 +238,34 @@ impl Buffer {
 
     /// Returns the current capacity of the buffer in bytes.
     ///
-    /// This is always a multiple of [`CHUNK_SIZE`] and represents the maximum number of bytes
-    /// the buffer can hold before needing to grow.
+    /// This is always a multiple of [`CHUNK_SIZE`].
     #[inline]
     pub fn cap(&self) -> usize {
         self.cap
     }
 
     /// Returns the number of bytes currently in the buffer.
-    ///
-    /// This includes both consumed and unconsumed data. The unconsumed portion is
-    /// `len() - pos()` bytes.
     #[inline]
     pub fn len(&self) -> usize {
         self.len
     }
 
     /// Returns `true` if the buffer contains no data.
-    ///
-    /// Equivalent to `self.len() == 0`.
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
 
     /// Returns the current read position (number of consumed bytes).
-    ///
-    /// Data from index 0 to `pos()` has been consumed. Unconsumed data starts at `pos()`.
     #[inline]
     pub fn pos(&self) -> usize {
         self.pos
     }
 
-    /// Discards all data in the buffer without changing capacity.
+    /// Clears all data in the buffer.
     ///
-    /// Resets both the read position and length to zero, but keeps the current
-    /// buffer capacity unchanged.
+    /// Resets both the read position and length to zero, but keeps the current buffer capacity
+    /// unchanged.
     ///
     /// # Examples
     ///
@@ -290,10 +285,10 @@ impl Buffer {
         self.len = 0;
     }
 
-    /// Discards all data in the buffer and shrinks capacity.
+    /// Discards all data and excess capacity.
     ///
-    /// Resets both the read position and length to zero, then shrinks the buffer
-    /// to the minimum capacity.
+    /// Resets both the read position and length to zero, then shrinks the buffer to the minimum
+    /// capacity.
     ///
     /// # Examples
     ///
@@ -313,7 +308,7 @@ impl Buffer {
         self.shrink();
     }
 
-    /// Marks `amt` bytes as consumed, advancing the read position.
+    /// Marks `amt` bytes as consumed, moving the read position forwards.
     ///
     /// If `amt` exceeds the available unconsumed data, the position is clamped to
     /// [`len()`](Self::len).
@@ -334,10 +329,9 @@ impl Buffer {
         self.pos = cmp::min(self.pos + amt, self.len);
     }
 
-    /// Moves the read position backward by `amt` bytes, clamped to 0.
+    /// Marks `amt` bytes as unconsumed, moving the read position backwards.
     ///
-    /// This is the inverse of [`consume()`](Self::consume): it makes previously
-    /// consumed (but still retained) bytes available again.
+    /// If `amt` exceeds the available consumed data, the position is clamped to 0.
     ///
     /// # Examples
     ///
@@ -356,11 +350,9 @@ impl Buffer {
         self.pos = self.pos.saturating_sub(amt);
     }
 
-    /// Removes consumed bytes from the buffer by moving unconsumed data to the start.
+    /// Moves the unconsumed data to the start of the buffer, clearing all consumed data.
     ///
-    /// Moves unconsumed data to the beginning of the buffer using `copy_within` and resets the
-    /// read position to 0. The capacity remains unchanged - use [`shrink()`](Self::shrink) or
-    /// [`shrink_targeted()`](Self::shrink_targeted) afterwards if you want to reduce capacity.
+    /// The read position is reset to 0 and the capacity stays the same.
     ///
     /// This operation is useful after consuming a significant amount of data to make room for
     /// more reads without growing the buffer.
@@ -398,12 +390,6 @@ impl Buffer {
     /// the given capacity to the nearest multiple of [`CHUNK_SIZE`], with a minimum of
     /// [`CHUNK_SIZE`] and a maximum of [`THEORETICAL_MAX_SIZE`].
     ///
-    /// # Use Cases
-    ///
-    /// - Calculating optimal buffer capacity when downsizing
-    /// - Pre-calculating shrink targets before performing operations
-    /// - Understanding the buffer's shrinking behavior
-    ///
     /// # Examples
     ///
     /// ```
@@ -421,8 +407,7 @@ impl Buffer {
     #[expect(clippy::arithmetic_side_effects, reason = "Safe by bounds checks")]
     pub fn cap_down(capacity: usize) -> usize {
         // The bounds checks prevent both underflow and overflow problems by setting the minimum at
-        // `CHUNK_SIZE` and maximum at [`THEORETICAL_MAX_SIZE`]. The smallest value the calculation
-        // can reach is `CHUNK_SIZE` when `capacity` is less than `2 * CHUNK_SIZE`.
+        // `CHUNK_SIZE` and maximum at `THEORETICAL_MAX_SIZE`.
 
         // Min bounds check
         if capacity <= CHUNK_SIZE {
@@ -438,25 +423,18 @@ impl Buffer {
         (capacity / CHUNK_SIZE) * CHUNK_SIZE
     }
 
-    /// Rounds capacity up to the nearest power-of-2 multiple of [`CHUNK_SIZE`].
+    /// Rounds capacity up to the nearest power-of-two multiple of [`CHUNK_SIZE`].
     ///
     /// This method implements the exponential growth strategy used by the buffer. It rounds up
-    /// the given capacity to the nearest power-of-2 multiple of [`CHUNK_SIZE`] (e.g.,
-    /// `CHUNK_SIZE`, `2 * CHUNK_SIZE`, `4 * CHUNK_SIZE`, etc.), with a minimum of [`CHUNK_SIZE`]
-    /// and a maximum of [`THEORETICAL_MAX_SIZE`].
-    ///
-    /// # Use Cases
-    ///
-    /// - Pre-allocating buffers with optimal capacity before operations
-    /// - Calculating growth targets to minimize reallocations
-    /// - Understanding the buffer's growth behavior
+    /// the given capacity to the nearest power-of-two multiple of [`CHUNK_SIZE`], with a minimum of
+    /// [`CHUNK_SIZE`] and a maximum of [`THEORETICAL_MAX_SIZE`].
     ///
     /// # Examples
     ///
     /// ```
     /// # use dyn_buf_reader::buffer::Buffer;
     /// # use dyn_buf_reader::constants::CHUNK_SIZE;
-    /// // Rounds up to nearest power-of-2 multiple of CHUNK_SIZE
+    /// // Rounds up to nearest power-of-two multiple of CHUNK_SIZE
     /// assert_eq!(Buffer::cap_up(CHUNK_SIZE), CHUNK_SIZE);
     /// assert_eq!(Buffer::cap_up(CHUNK_SIZE + 1), 2 * CHUNK_SIZE);
     /// assert_eq!(Buffer::cap_up(2 * CHUNK_SIZE), 2 * CHUNK_SIZE);
@@ -470,37 +448,27 @@ impl Buffer {
     #[expect(clippy::arithmetic_side_effects, reason = "Safe by bounds checks")]
     pub fn cap_up(capacity: usize) -> usize {
         // The bounds checks prevent both underflow and overflow problems by setting the minimum at
-        // `CHUNK_SIZE` and maximum at [`THEORETICAL_MAX_SIZE`]. The early return for large capacities
-        // ensures that power-of-two calculations cannot overflow.
+        // `CHUNK_SIZE` and maximum at `THEORETICAL_MAX_SIZE`.
 
         // Max bounds check
-        if capacity >= THEORETICAL_MAX_SIZE >> 1 {
+        if capacity > THEORETICAL_MAX_SIZE >> 1 {
             return THEORETICAL_MAX_SIZE;
         }
 
         // Min bounds check
-        if capacity < CHUNK_SIZE {
+        if capacity <= CHUNK_SIZE {
             return CHUNK_SIZE;
         }
 
-        // Round up `capacity` to the nearest power of two multiple of `CHUNK_SIZE`
+        // Round up `capacity` to the nearest power-of-two multiple of `CHUNK_SIZE`
         ((capacity + CHUNK_SIZE - 1) / CHUNK_SIZE).next_power_of_two() * CHUNK_SIZE
     }
 
-    /// Rounds capacity up to the nearest [`CHUNK_SIZE`] multiple (linear).
+    /// Rounds capacity up to the nearest [`CHUNK_SIZE`] multiple.
     ///
-    /// This method provides linear capacity rounding, useful for precise capacity allocation.
-    /// It rounds up the given capacity to the nearest multiple of [`CHUNK_SIZE`], with a minimum
-    /// of [`CHUNK_SIZE`] and a maximum of [`THEORETICAL_MAX_SIZE`].
-    ///
-    /// Unlike [`cap_up`](Self::cap_up) which uses exponential (power-of-2) rounding, this method
-    /// provides exact multiples of [`CHUNK_SIZE`].
-    ///
-    /// # Use Cases
-    ///
-    /// - Allocating buffers with precise capacity requirements
-    /// - Pre-allocating exactly the needed amount without over-allocation
-    /// - Creating buffers where you know the exact size needed
+    /// This method provides linear capacity rounding, for precise capacity allocation. It rounds up
+    /// the given capacity to the nearest multiple of [`CHUNK_SIZE`], with a minimum of
+    /// [`CHUNK_SIZE`] and a maximum of [`THEORETICAL_MAX_SIZE`].
     ///
     /// # Examples
     ///
@@ -520,15 +488,15 @@ impl Buffer {
     #[expect(clippy::arithmetic_side_effects, reason = "Safe by bounds checks")]
     pub fn cap_up_linear(capacity: usize) -> usize {
         // The bounds checks prevent both underflow and overflow problems by setting the minimum at
-        // `CHUNK_SIZE` and maximum at [`THEORETICAL_MAX_SIZE`].
+        // `CHUNK_SIZE` and maximum at `THEORETICAL_MAX_SIZE`.
 
         // Max bounds check
-        if capacity >= THEORETICAL_MAX_SIZE {
+        if capacity > THEORETICAL_MAX_SIZE - CHUNK_SIZE {
             return THEORETICAL_MAX_SIZE;
         }
 
         // Min bounds check
-        if capacity < CHUNK_SIZE {
+        if capacity <= CHUNK_SIZE {
             return CHUNK_SIZE;
         }
 
@@ -536,14 +504,31 @@ impl Buffer {
         ((capacity + CHUNK_SIZE - 1) / CHUNK_SIZE) * CHUNK_SIZE
     }
 
+    /// Grows the buffer capacity to the next power-of-two multiple of [`CHUNK_SIZE`].
+    ///
+    /// The capacity grows exponentially up to a maximum of [`THEORETICAL_MAX_SIZE`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use dyn_buf_reader::buffer::Buffer;
+    /// # use dyn_buf_reader::constants::CHUNK_SIZE;
+    /// let mut buffer = Buffer::new();
+    /// let initial_cap = buffer.cap();
+    /// buffer.grow();
+    /// assert_eq!(buffer.cap(), 2 * initial_cap);
+    /// ```
+    #[expect(clippy::arithmetic_side_effects, reason = "Safe by invariant")]
+    #[inline]
+    pub fn grow(&mut self) {
+        self.grow_targeted(self.cap + CHUNK_SIZE);
+    }
+
     /// Grows the buffer capacity to at least the specified target.
     ///
     /// If the buffer's current capacity already meets or exceeds `target`, no operation is
-    /// performed. Otherwise, grows to the nearest power-of-2 multiple of [`CHUNK_SIZE`] that
+    /// performed. Otherwise, grows to the nearest power-of-two multiple of [`CHUNK_SIZE`] that
     /// accommodates `target`, up to a maximum of [`THEORETICAL_MAX_SIZE`].
-    ///
-    /// For unconditional single-step growth to the next power-of-2 multiple, use
-    /// [`grow()`](Self::grow).
     ///
     /// # Examples
     ///
@@ -568,34 +553,39 @@ impl Buffer {
         }
     }
 
-    /// Grows the buffer capacity to the next power-of-2 multiple of [`CHUNK_SIZE`].
+    /// Grows the buffer capacity to at least the specified target linearly.
     ///
-    /// The capacity grows exponentially (e.g., `CHUNK_SIZE` → `2 * CHUNK_SIZE` → `4 * CHUNK_SIZE`)
-    /// up to [`THEORETICAL_MAX_SIZE`].
+    /// If the buffer's current capacity already meets or exceeds `target`, no operation is
+    /// performed. Otherwise, grows to the nearest multiple of [`CHUNK_SIZE`] that accommodates
+    /// `target`, up to a maximum of [`THEORETICAL_MAX_SIZE`].
     ///
     /// # Examples
     ///
     /// ```
     /// # use dyn_buf_reader::buffer::Buffer;
     /// # use dyn_buf_reader::constants::CHUNK_SIZE;
-    /// let mut buffer = Buffer::new();
-    /// let initial_cap = buffer.cap();
-    /// buffer.grow();
-    /// assert_eq!(buffer.cap(), 2 * initial_cap);
+    /// let mut buffer = Buffer::new(); // starts at CHUNK_SIZE
+    /// buffer.grow_targeted_linear(3 * CHUNK_SIZE);
+    /// assert_eq!(buffer.cap(), 3 * CHUNK_SIZE);
+    ///
+    /// // No-op when already large enough
+    /// buffer.grow_targeted_linear(CHUNK_SIZE);
+    /// assert_eq!(buffer.cap(), 3 * CHUNK_SIZE);
     /// ```
-    #[expect(clippy::arithmetic_side_effects, reason = "Safe by invariant")]
     #[inline]
-    pub fn grow(&mut self) {
-        self.grow_targeted(self.cap + CHUNK_SIZE);
+    pub fn grow_targeted_linear(&mut self, target: usize) {
+        let next = Self::cap_up_linear(target);
+
+        if next > self.cap {
+            self.buf.resize(next, 0);
+            self.cap = next;
+        }
     }
 
     /// Shrinks the buffer capacity to fit the current data.
     ///
-    /// Reduces the buffer's capacity to the smallest [`CHUNK_SIZE`] multiple that can hold the
-    /// current data. The minimum capacity is always [`CHUNK_SIZE`]. This is useful for reclaiming
-    /// memory after operations that left the buffer over-allocated.
-    ///
-    /// For more control over the target capacity, use [`shrink_targeted()`](Self::shrink_targeted).
+    /// Reduces the buffer's capacity to the smallest multiple of [`CHUNK_SIZE`] that can hold the
+    /// current data. The minimum capacity is [`CHUNK_SIZE`].
     ///
     /// # Examples
     ///
@@ -619,10 +609,7 @@ impl Buffer {
     ///
     /// Reduces the buffer's capacity to the smallest [`CHUNK_SIZE`] multiple that can hold either
     /// the current data or the specified target capacity, whichever requires more space. The minimum
-    /// capacity is always [`CHUNK_SIZE`].
-    ///
-    /// This is useful when you want to shrink the buffer but maintain a minimum capacity for future
-    /// operations, avoiding frequent reallocations.
+    /// capacity is [`CHUNK_SIZE`].
     ///
     /// # Examples
     ///
@@ -643,8 +630,6 @@ impl Buffer {
     /// ```
     #[inline]
     pub fn shrink_targeted(&mut self, target: usize) {
-        // The length maxes out at [`THEORETICAL_MAX_SIZE`] so adding `CHUNK_SIZE` can't overflow.
-
         // Round `self.len()` up to the next chunk boundary to ensure `self.cap()` >= `self.len()`
         let mut next = Self::cap_up_linear(self.len);
 
@@ -660,14 +645,15 @@ impl Buffer {
     /// Fills the available space in the buffer from a reader.
     ///
     /// Reads data to fill the buffer up to its current capacity without growing the buffer.
-    /// Returns a [`FillResult`] with the number of bytes read and context about how the
-    /// operation completed:
+    ///
+    /// Returns a [`FillResult`] with the number of bytes read and context about how the operation
+    /// completed:
     ///
     /// - [`FillResult::Complete`]: The buffer was filled to capacity (or was already full).
     /// - [`FillResult::Eof`]: The reader reached end-of-file before filling the buffer.
     ///
-    /// Both variants represent successful operations - the byte count may be 0 if the buffer
-    /// is already full or the reader is at EOF.
+    /// Both variants represent successful operations, the byte count may be 0 if the buffer is
+    /// already full or the reader is at EOF.
     ///
     /// # Examples
     ///
@@ -688,42 +674,34 @@ impl Buffer {
     /// # Errors
     ///
     /// Returns any I/O errors encountered while reading from the reader.
-    #[expect(
-        clippy::arithmetic_side_effects,
-        clippy::indexing_slicing,
-        reason = "Safe by invariant"
-    )]
     pub fn fill(&mut self, mut reader: impl Read) -> io::Result<FillResult> {
-        let mut bytes_read = 0;
+        let mut total_bytes_read = 0;
 
-        if self.len >= self.cap {
-            debug_assert!(self.len == self.cap);
-
-            // Buffer is full, nothing to read.
-            return Ok(FillResult::Complete(0));
+        loop {
+            // This is a non-growing method so `Capped` is the target for the `Complete` case.
+            match self.read_once(&mut reader, &mut total_bytes_read, Some(&mut |_| true))? {
+                ReadOnce::Capped => return Ok(FillResult::Complete(total_bytes_read)),
+                ReadOnce::Eof => return Ok(FillResult::Eof(total_bytes_read)),
+                ReadOnce::Read => {}
+            }
         }
-
-        // Read to fill the remaining space.
-        bytes_read += reader.read(&mut self.buf[self.len..self.cap])?;
-
-        // Increase the length by the number of bytes read.
-        self.len += bytes_read;
-
-        if self.len < self.cap {
-            // EOF reached.
-            return Ok(FillResult::Eof(bytes_read));
-        }
-
-        Ok(FillResult::Complete(bytes_read))
     }
 
-    /// Fills the buffer with at least `amt` bytes from a reader, growing as needed.
+    /// Tries to fill the buffer with at least `amt` bytes from a reader, growing as needed.
     ///
     /// Pre-allocates capacity to fit the full requested amount, then reads until the requested
-    /// amount is read or EOF is reached. After the operation completes, any excess capacity
-    /// beyond the starting capacity is released.
+    /// amount is read or EOF is reached. On EOF, any excess capacity beyond the starting capacity
+    /// is released.
     ///
-    /// The total number of bytes read is returned.
+    /// Returns a [`FillResult`] with the number of bytes read and context about how the operation
+    /// completed:
+    ///
+    /// - [`FillResult::Complete`]: At least the requested amount of bytes were read.
+    /// - [`FillResult::Eof`]: The reader reached end-of-file before reading the requested amount of
+    ///   bytes.
+    ///
+    /// Both variants represent successful operations, the byte count may be 0 if the reader is at
+    /// EOF.
     ///
     /// # Examples
     ///
@@ -742,11 +720,7 @@ impl Buffer {
     /// # Errors
     ///
     /// Returns any I/O errors encountered while reading from the reader.
-    #[expect(
-        clippy::arithmetic_side_effects,
-        clippy::indexing_slicing,
-        reason = "Safe by invariant"
-    )]
+    #[expect(clippy::arithmetic_side_effects, reason = "Safe by overflow check")]
     pub fn fill_amount(&mut self, mut reader: impl Read, amt: usize) -> io::Result<FillResult> {
         // Check if the requested amount exceeds what we can possibly accommodate
         if amt > THEORETICAL_MAX_SIZE - self.len {
@@ -763,31 +737,20 @@ impl Buffer {
         let target = self.len + amt;
 
         // Grow to accommodate amt more bytes of data
-        self.grow_targeted(target);
+        self.grow_targeted_linear(target);
 
-        // Track the total bytes read
         let mut total_bytes_read = 0;
 
-        // Loop until we've read enough bytes or EOF
         while total_bytes_read < amt {
-            // Fill all available space
-            let bytes_read = reader.read(&mut self.buf[self.len..self.cap])?;
-
-            if bytes_read == 0 {
-                // We've hit EOF
-                self.shrink_targeted(starting_capacity);
-                return Ok(FillResult::Eof(total_bytes_read));
+            match self.read_once(&mut reader, &mut total_bytes_read, Some(&mut |_| true))? {
+                ReadOnce::Read => {}
+                ReadOnce::Eof => {
+                    self.shrink_targeted(starting_capacity);
+                    return Ok(FillResult::Eof(total_bytes_read));
+                }
+                ReadOnce::Capped => unreachable!(),
             }
-
-            // Increase the length by the number of bytes read
-            self.len += bytes_read;
-
-            // Increase the total number of bytes read
-            total_bytes_read += bytes_read;
         }
-
-        // Release any excess capacity
-        self.shrink_targeted(starting_capacity);
 
         Ok(FillResult::Complete(total_bytes_read))
     }
@@ -795,8 +758,7 @@ impl Buffer {
     /// Fills the buffer with exactly `amt` bytes from a reader, growing as needed.
     ///
     /// Pre-allocates capacity to fit the requested amount, then reads exactly that many bytes
-    /// using [`Read::read_exact`]. After the operation completes, any excess capacity beyond
-    /// the starting capacity is released.
+    /// using [`Read::read_exact`].
     ///
     /// Unlike [`fill_amount`](Self::fill_amount), this method requires the full amount to be
     /// available and returns an error if EOF is reached early.
@@ -832,14 +794,11 @@ impl Buffer {
             ));
         }
 
-        // Capture starting capacity to use as a shrink target
-        let starting_capacity = self.cap;
-
         // Find the target length (safe: checked above)
         let target = self.len + amt;
 
         // Grow to accommodate amt more bytes of data
-        self.grow_targeted(target);
+        self.grow_targeted_linear(target);
 
         // Get exact free slice
         let unfilled = &mut self.buf[self.len..target];
@@ -851,20 +810,17 @@ impl Buffer {
         // Update the length
         self.len += amt;
 
-        // Release any excess capacity
-        self.shrink_targeted(starting_capacity);
-
         Ok(())
     }
 
-    /// Grows (if needed and allowed), reads once from `reader`, and updates bookkeeping.
+    /// Grows (unless capped), reads once from `reader`, and updates bookkeeping.
     ///
-    /// When the buffer is full, `is_capped` is consulted first: if `Some(f)` and
-    /// `f(self.cap)` returns `true`, the read is skipped and [`ReadOnce::Capped`] is
-    /// returned. Otherwise the buffer grows before reading.
+    /// When the buffer is full, `is_capped` is consulted first: if `Some(f)` and `f(self.cap)`
+    /// returns `true`, the read is skipped and [`ReadOnce::Capped`] is returned. Otherwise the
+    /// buffer grows before reading.
     ///
-    /// On success the read bytes are appended (`self.len` is advanced) and
-    /// `*total_bytes_read` is incremented.
+    /// On success the read bytes are appended (`self.len` is advanced) and `*total_bytes_read` is
+    /// incremented.
     #[expect(
         clippy::arithmetic_side_effects,
         clippy::indexing_slicing,
@@ -913,7 +869,7 @@ impl Buffer {
     /// until the reader returns `Ok(0)` (EOF). After the operation completes, any excess
     /// capacity beyond the starting capacity is released.
     ///
-    /// Note that this method has no capacity limit — the buffer will grow unboundedly
+    /// Note that this method has no capacity limit, the buffer will grow unboundedly
     /// until EOF is reached or an error occurs. Callers should ensure the input is
     /// reasonably sized or impose their own limits before calling.
     ///

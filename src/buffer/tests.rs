@@ -315,11 +315,11 @@ fn test_buffer_unconsume() {
     buffer.unconsume(20);
     assert_eq!(buffer.pos(), 30);
 
-    // Unconsume more than consumed — clamps to 0
+    // Unconsume more than consumed, clamps to 0
     buffer.unconsume(100);
     assert_eq!(buffer.pos(), 0);
 
-    // Unconsume when already at 0 — no-op
+    // Unconsume when already at 0, no-op
     buffer.unconsume(50);
     assert_eq!(buffer.pos(), 0);
 }
@@ -403,7 +403,7 @@ fn test_buffer_cap_down() {
     assert_eq!(Buffer::cap_down(123 * CHUNK_SIZE + 1234), 123 * CHUNK_SIZE);
     assert_eq!(
         Buffer::cap_down(THEORETICAL_MAX_SIZE - 1),
-        THEORETICAL_MAX_SIZE - CHUNK_SIZE // Note: `THEORETICAL_MAX_SIZE` is a multiple of `CHUNK_SIZE`
+        THEORETICAL_MAX_SIZE - CHUNK_SIZE
     );
 
     // Sizes above `THEORETICAL_MAX_SIZE` should round down to `THEORETICAL_MAX_SIZE` as that's the max
@@ -415,6 +415,13 @@ fn test_buffer_cap_down() {
     assert_eq!(
         Buffer::cap_down(THEORETICAL_MAX_SIZE + 1),
         THEORETICAL_MAX_SIZE
+    );
+
+    // Exact sizes should stay the same.
+    assert_eq!(Buffer::cap_down(3 * CHUNK_SIZE), 3 * CHUNK_SIZE);
+    assert_eq!(
+        Buffer::cap_down(THEORETICAL_MAX_SIZE - CHUNK_SIZE),
+        THEORETICAL_MAX_SIZE - CHUNK_SIZE
     );
 }
 
@@ -439,12 +446,23 @@ fn test_buffer_cap_up() {
     assert_eq!(Buffer::cap_up(123 * CHUNK_SIZE - 1234), 128 * CHUNK_SIZE);
     assert_eq!(
         Buffer::cap_up(THEORETICAL_MAX_SIZE - 1),
-        THEORETICAL_MAX_SIZE // Note: `THEORETICAL_MAX_SIZE` is a multiple of `CHUNK_SIZE`
+        THEORETICAL_MAX_SIZE
+    );
+    assert_eq!(
+        Buffer::cap_up((THEORETICAL_MAX_SIZE >> 1) + 1),
+        THEORETICAL_MAX_SIZE
     );
 
     // Sizes below `CHUNK_SIZE` should round up to `CHUNK_SIZE` as that's the min
     assert_eq!(Buffer::cap_up(usize::MIN), CHUNK_SIZE);
     assert_eq!(Buffer::cap_up(CHUNK_SIZE - 1), CHUNK_SIZE);
+
+    // Exact sizes should stay the same.
+    assert_eq!(Buffer::cap_up(4 * CHUNK_SIZE), 4 * CHUNK_SIZE);
+    assert_eq!(
+        Buffer::cap_up(THEORETICAL_MAX_SIZE >> 1),
+        THEORETICAL_MAX_SIZE >> 1
+    );
 }
 
 #[test]
@@ -476,10 +494,21 @@ fn test_buffer_cap_up_linear() {
         Buffer::cap_up_linear(THEORETICAL_MAX_SIZE - 1),
         THEORETICAL_MAX_SIZE // Note: `THEORETICAL_MAX_SIZE` is a multiple of `CHUNK_SIZE`
     );
+    assert_eq!(
+        Buffer::cap_up_linear(THEORETICAL_MAX_SIZE - CHUNK_SIZE + 1),
+        THEORETICAL_MAX_SIZE
+    );
 
     // Sizes below `CHUNK_SIZE` should round up to `CHUNK_SIZE` as that's the min
     assert_eq!(Buffer::cap_up_linear(usize::MIN), CHUNK_SIZE);
     assert_eq!(Buffer::cap_up_linear(CHUNK_SIZE - 1), CHUNK_SIZE);
+
+    // Exact sizes should stay the same.
+    assert_eq!(Buffer::cap_up_linear(3 * CHUNK_SIZE), 3 * CHUNK_SIZE);
+    assert_eq!(
+        Buffer::cap_up_linear(THEORETICAL_MAX_SIZE - CHUNK_SIZE),
+        THEORETICAL_MAX_SIZE - CHUNK_SIZE
+    );
 }
 
 // -----------------------------------------------------------------------------
@@ -511,13 +540,13 @@ fn test_buffer_grow_targeted() {
     assert!(buffer.buf.capacity() >= CHUNK_SIZE); // Also double check the internals
     assert_eq!(buffer.buf.len(), CHUNK_SIZE);
 
-    // Grow to a target that is an exact power-of-2 multiple — no overshoot
+    // Grow to a target that is an exact power-of-2 multiple, no overshoot
     buffer.grow_targeted(4 * CHUNK_SIZE);
     assert_eq!(buffer.cap(), 4 * CHUNK_SIZE);
     assert!(buffer.buf.capacity() >= 4 * CHUNK_SIZE); // Also double check the internals
     assert_eq!(buffer.buf.len(), 4 * CHUNK_SIZE);
 
-    // Growing with a target below the current cap is also a no-op — even usize::MIN
+    // Growing with a target below the current cap is also a no-op, even usize::MIN
     buffer.grow_targeted(usize::MIN); // rounds to CHUNK_SIZE, which is less than 4 * CHUNK_SIZE
     assert_eq!(buffer.cap(), 4 * CHUNK_SIZE);
     assert!(buffer.buf.capacity() >= 4 * CHUNK_SIZE); // Also double check the internals
@@ -541,11 +570,68 @@ fn test_buffer_grow_targeted() {
     assert!(buffer.buf.capacity() >= 64 * CHUNK_SIZE); // Also double check the internals
     assert_eq!(buffer.buf.len(), 64 * CHUNK_SIZE);
 
-    // A large non-aligned jump to show we can skip multiple doublings at once
+    // And finally a large non-aligned jump
     buffer.grow_targeted(200 * CHUNK_SIZE - 123); // not a power-of-2 multiple
     assert_eq!(buffer.cap(), 256 * CHUNK_SIZE);
     assert!(buffer.buf.capacity() >= 256 * CHUNK_SIZE); // Also double check the internals
     assert_eq!(buffer.buf.len(), 256 * CHUNK_SIZE);
+}
+
+#[test]
+fn test_buffer_grow_targeted_linear() {
+    let mut buffer = Buffer::new(); // Starts at CHUNK_SIZE
+
+    // Double-check the starting cap
+    assert_eq!(buffer.cap(), CHUNK_SIZE);
+    assert!(buffer.buf.capacity() >= CHUNK_SIZE); // Also double check the internals
+    assert_eq!(buffer.buf.len(), CHUNK_SIZE);
+
+    /* Note: We can't check an upper bound of `buffer.buf.capacity()` since it's resized using an
+     * "at least" method with no documented ceiling. While usually exact or slightly bigger, there's
+     * no way we can guarantee that for our tests. The best we can, or should, do is follow the docs
+     */
+
+    // Growing with a target equal to the current cap is a no-op
+    buffer.grow_targeted_linear(CHUNK_SIZE);
+    assert_eq!(buffer.cap(), CHUNK_SIZE);
+    assert!(buffer.buf.capacity() >= CHUNK_SIZE); // Also double check the internals
+    assert_eq!(buffer.buf.len(), CHUNK_SIZE);
+
+    // Grow to a target that is an exact multiple, no overshoot
+    buffer.grow_targeted_linear(3 * CHUNK_SIZE);
+    assert_eq!(buffer.cap(), 3 * CHUNK_SIZE);
+    assert!(buffer.buf.capacity() >= 3 * CHUNK_SIZE); // Also double check the internals
+    assert_eq!(buffer.buf.len(), 3 * CHUNK_SIZE);
+
+    // Growing with a target below the current cap is also a no-op, even usize::MIN
+    buffer.grow_targeted_linear(usize::MIN); // rounds to CHUNK_SIZE, which is less than 3 * CHUNK_SIZE
+    assert_eq!(buffer.cap(), 3 * CHUNK_SIZE);
+    assert!(buffer.buf.capacity() >= 3 * CHUNK_SIZE); // Also double check the internals
+    assert_eq!(buffer.buf.len(), 3 * CHUNK_SIZE);
+
+    // Grow to a non-aligned target to show rounding to the next multiple
+    buffer.grow_targeted_linear(5 * CHUNK_SIZE - 123); // not a power-of-2 multiple
+    assert_eq!(buffer.cap(), 5 * CHUNK_SIZE);
+    assert!(buffer.buf.capacity() >= 5 * CHUNK_SIZE); // Also double check the internals
+    assert_eq!(buffer.buf.len(), 5 * CHUNK_SIZE);
+
+    // Grow another step
+    buffer.grow_targeted_linear(10 * CHUNK_SIZE);
+    assert_eq!(buffer.cap(), 10 * CHUNK_SIZE);
+    assert!(buffer.buf.capacity() >= 10 * CHUNK_SIZE); // Also double check the internals
+    assert_eq!(buffer.buf.len(), 10 * CHUNK_SIZE);
+
+    // And again
+    buffer.grow_targeted_linear(20 * CHUNK_SIZE);
+    assert_eq!(buffer.cap(), 20 * CHUNK_SIZE);
+    assert!(buffer.buf.capacity() >= 20 * CHUNK_SIZE); // Also double check the internals
+    assert_eq!(buffer.buf.len(), 20 * CHUNK_SIZE);
+
+    // And finally a large non-aligned jump
+    buffer.grow_targeted_linear(200 * CHUNK_SIZE - 123); // not a multiple
+    assert_eq!(buffer.cap(), 200 * CHUNK_SIZE);
+    assert!(buffer.buf.capacity() >= 200 * CHUNK_SIZE); // Also double check the internals
+    assert_eq!(buffer.buf.len(), 200 * CHUNK_SIZE);
 }
 
 /* Note: The `shrink` method is just a wrapper over `shrink_targeted`
@@ -715,24 +801,24 @@ fn test_buffer_fill_amount() {
     assert_eq!(buffer.len(), raw.len());
     assert_eq!(buffer.buf(), raw.as_bytes());
 
-    // Fill the buffer to more data for the next test
+    // Fill the buffer to more data for the next test, reads are "at least"
     let mut cur = Cursor::new(&data);
     let read = buffer.fill_amount(&mut cur, 2 * CHUNK_SIZE).unwrap();
 
-    // We should have 4 × `CHUNK_SIZE` bytes of data as there were bytes left in the buffer
-    assert_eq!(read, FillResult::Complete(4 * CHUNK_SIZE - raw.len()));
-    assert_eq!(buffer.len(), 4 * CHUNK_SIZE);
+    // We should have 3 × `CHUNK_SIZE` bytes of data as there were bytes left in the buffer
+    assert_eq!(read, FillResult::Complete(3 * CHUNK_SIZE - raw.len()));
+    assert_eq!(buffer.len(), 3 * CHUNK_SIZE);
 
     // Discard everything for a clean slate
     buffer.discard();
 
-    // Read a big amount of data, specifically 3 × `CHUNK_SIZE` bytes
+    // Read a big amount of data, a bit more than 2 × `CHUNK_SIZE`
     let cur = Cursor::new(&data);
-    let read = buffer.fill_amount(cur, 3 * CHUNK_SIZE).unwrap();
+    let read = buffer.fill_amount(cur, 2 * CHUNK_SIZE + 1).unwrap();
 
-    // We should have 4 × `CHUNK_SIZE` bytes of data since 4 is the closest power-of-2 after 3
-    assert_eq!(read, FillResult::Complete(4 * CHUNK_SIZE));
-    assert_eq!(buffer.len(), 4 * CHUNK_SIZE);
+    // We should have 3 × `CHUNK_SIZE` bytes of data since that's the next multiple
+    assert_eq!(read, FillResult::Complete(3 * CHUNK_SIZE));
+    assert_eq!(buffer.len(), 3 * CHUNK_SIZE);
     assert_eq!(buffer.buf(), &data.as_bytes()[..buffer.len()]); // Data should match
 
     // Discard everything for a clean slate
@@ -847,7 +933,7 @@ fn test_buffer_read_once() {
     // read_once is private, so we test it through fill_to_end (simplest caller).
     // The key behavior to verify is the Interrupted retry loop.
 
-    // Interrupted retry — read_once retries on Interrupted, then succeeds
+    // Interrupted retry, read_once retries on Interrupted, then succeeds
     let mut buffer = Buffer::new();
     let reader = InterruptOnceReader {
         inner: Cursor::new("Hello!"),
@@ -890,7 +976,7 @@ fn test_buffer_fill_to_end() {
     // Discard everything for a clean slate
     buffer.discard();
 
-    // Read data that exactly fills one chunk — should not trigger growth
+    // Read data that exactly fills one chunk, should not trigger growth
     let data = raw.repeat(4000); // > 5 × `CHUNK_SIZE`
     let cur = Cursor::new(&data.as_bytes()[..CHUNK_SIZE]);
     let read = buffer.fill_to_end(cur).unwrap();
@@ -986,7 +1072,7 @@ fn test_buffer_fill_while() {
     // Discard everything for a clean slate
     buffer.discard();
 
-    // Read data where the predicate is never satisfied — should reach EOF
+    // Read data where the predicate is never satisfied, should reach EOF
     let cur = Cursor::new(raw);
     let read = buffer
         .fill_while(cur, |d| !d.contains(&b'\n'), None)
@@ -1038,7 +1124,7 @@ fn test_buffer_fill_while() {
     // Discard everything for a clean slate
     buffer.discard();
 
-    // Read with consumed data (pos > 0) — the predicate should only see unconsumed data
+    // Read with consumed data (pos > 0), the predicate should only see unconsumed data
     buffer.inject_test_data(b"consumed:kept:");
     buffer.consume(9); // consume "consumed:"
 
@@ -1061,7 +1147,7 @@ fn test_buffer_fill_while() {
     // Discard everything for a clean slate
     buffer.discard();
 
-    // Test growth_limit — cap at `CHUNK_SIZE` with a reader larger than that
+    // Test growth_limit, cap at `CHUNK_SIZE` with a reader larger than that
     let big_data = vec![b'a'; CHUNK_SIZE * 3];
     let cur = Cursor::new(&big_data[..]);
     let read = buffer.fill_while(cur, |_| true, Some(CHUNK_SIZE)).unwrap();
@@ -1074,7 +1160,7 @@ fn test_buffer_fill_while() {
     // Discard everything for a clean slate
     buffer.discard();
 
-    // Test growth_limit with `None` — behaves like unbounded, reads to EOF
+    // Test growth_limit with `None`, behaves like unbounded, reads to EOF
     let cur = Cursor::new(&data.as_bytes()[..4 * CHUNK_SIZE]);
     let read = buffer.fill_while(cur, |_| true, None).unwrap();
 
@@ -1086,7 +1172,7 @@ fn test_buffer_fill_while() {
     // Discard everything for a clean slate
     buffer.discard();
 
-    // Condition already fulfilled in existing data — should return without reading
+    // Condition already fulfilled in existing data, should return without reading
     buffer.inject_test_data(b"has a space here");
     let cur = Cursor::new(b"unreachable");
     let read = buffer
@@ -1134,7 +1220,7 @@ fn test_buffer_fill_until() {
     // Discard everything for a clean slate
     buffer.discard();
 
-    // Read data where the delimiter is never found — should reach EOF
+    // Read data where the delimiter is never found, should reach EOF
     let cur = Cursor::new(raw);
     let read = buffer.fill_until(cur, b'\n', None).unwrap();
 
@@ -1173,7 +1259,7 @@ fn test_buffer_fill_until() {
     // Discard everything for a clean slate
     buffer.discard();
 
-    // Read with consumed data (pos > 0) — search should only cover unconsumed data
+    // Read with consumed data (pos > 0), search should only cover unconsumed data
     buffer.inject_test_data(b"consumed\nkept:");
     buffer.consume(9); // consume "consumed\n"
 
@@ -1181,13 +1267,13 @@ fn test_buffer_fill_until() {
     let cur = Cursor::new(b"more data");
     let read = buffer.fill_until(cur, b'\n', None).unwrap();
 
-    // We should have hit EOF — no newline in the unconsumed region
+    // We should have hit EOF, no newline in the unconsumed region
     assert!(matches!(read, UnboundedFillResult::Eof(_)));
 
     // Discard everything for a clean slate
     buffer.discard();
 
-    // Test growth_limit — cap at `CHUNK_SIZE` with a reader larger than that
+    // Test growth_limit, cap at `CHUNK_SIZE` with a reader larger than that
     let big_data = vec![b'a'; CHUNK_SIZE * 3];
     let cur = Cursor::new(&big_data[..]);
     let read = buffer.fill_until(cur, b'\n', Some(CHUNK_SIZE)).unwrap();
@@ -1200,7 +1286,7 @@ fn test_buffer_fill_until() {
     // Discard everything for a clean slate
     buffer.discard();
 
-    // Delimiter already present in existing data — should return without reading
+    // Delimiter already present in existing data, should return without reading
     buffer.inject_test_data(b"already\nhere");
     let cur = Cursor::new(b"unreachable");
     let read = buffer.fill_until(cur, b'\n', None).unwrap();
@@ -1254,7 +1340,7 @@ fn test_buffer_fill_until_char() {
     // Discard everything for a clean slate
     buffer.discard();
 
-    // Read data where the char delimiter is never found — should reach EOF
+    // Read data where the char delimiter is never found, should reach EOF
     let cur = Cursor::new("Hello, World!");
     let read = buffer.fill_until_char(cur, '界', None).unwrap();
 
@@ -1265,7 +1351,7 @@ fn test_buffer_fill_until_char() {
     // Discard everything for a clean slate
     buffer.discard();
 
-    // Test growth_limit — cap at `CHUNK_SIZE` with a reader larger than that
+    // Test growth_limit, cap at `CHUNK_SIZE` with a reader larger than that
     let big_data = "a".repeat(CHUNK_SIZE * 3);
     let cur = Cursor::new(big_data.as_bytes());
     let read = buffer.fill_until_char(cur, '界', Some(CHUNK_SIZE)).unwrap();
@@ -1278,7 +1364,7 @@ fn test_buffer_fill_until_char() {
     // Discard everything for a clean slate
     buffer.discard();
 
-    // Delimiter already present in existing data — should return without reading
+    // Delimiter already present in existing data, should return without reading
     buffer.inject_test_data("Hello, 世界!".as_bytes());
     let cur = Cursor::new("unreachable");
     let read = buffer.fill_until_char(cur, '界', None).unwrap();
@@ -1302,7 +1388,7 @@ fn test_buffer_fill_until_str() {
     let raw = "Hello, World!";
     let data = raw.repeat(6000); // > 8 × `CHUNK_SIZE`
 
-    // Let's start with an empty needle — should return immediately
+    // Let's start with an empty needle, should return immediately
     let cur = Cursor::new(raw);
     let read = buffer.fill_until_str(cur, "", None).unwrap();
 
@@ -1330,7 +1416,7 @@ fn test_buffer_fill_until_str() {
     // Discard everything for a clean slate
     buffer.discard();
 
-    // Read data where the needle is never found — should reach EOF
+    // Read data where the needle is never found, should reach EOF
     let cur = Cursor::new(raw);
     let read = buffer.fill_until_str(cur, "END", None).unwrap();
 
@@ -1368,7 +1454,7 @@ fn test_buffer_fill_until_str() {
     // Discard everything for a clean slate
     buffer.discard();
 
-    // Read with consumed data (pos > 0) — search should only cover unconsumed data
+    // Read with consumed data (pos > 0), search should only cover unconsumed data
     buffer.inject_test_data(b"consumedENDkept:");
     buffer.consume(11); // consume "consumedEND"
 
@@ -1376,13 +1462,13 @@ fn test_buffer_fill_until_str() {
     let cur = Cursor::new(b"more data");
     let read = buffer.fill_until_str(cur, "END", None).unwrap();
 
-    // We should have hit EOF — no "END" in the unconsumed region
+    // We should have hit EOF, no "END" in the unconsumed region
     assert!(matches!(read, UnboundedFillResult::Eof(_)));
 
     // Discard everything for a clean slate
     buffer.discard();
 
-    // Test growth_limit — cap at `CHUNK_SIZE` with a reader larger than that
+    // Test growth_limit, cap at `CHUNK_SIZE` with a reader larger than that
     let big_data = vec![b'a'; CHUNK_SIZE * 3];
     let cur = Cursor::new(&big_data[..]);
     let read = buffer.fill_until_str(cur, "END", Some(CHUNK_SIZE)).unwrap();
@@ -1405,7 +1491,7 @@ fn test_buffer_fill_until_str() {
     // Discard everything for a clean slate
     buffer.discard();
 
-    // Needle already present in existing data — should return without reading
+    // Needle already present in existing data, should return without reading
     buffer.inject_test_data(b"Hello, World!END more data");
     let cur = Cursor::new(b"unreachable");
     let read = buffer.fill_until_str(cur, "END", None).unwrap();

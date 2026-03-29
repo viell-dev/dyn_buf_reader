@@ -489,8 +489,8 @@ impl<R: Read + Seek + ?Sized> Seek for DynBufReader<R> {
 impl<R: Read + Seek + ?Sized> DynBufReader<R> {
     /// Seeks relative to the current position, with an in-buffer fast path.
     ///
-    /// If the target position falls within the currently buffered data — either
-    /// forward into unconsumed bytes or backward into retained consumed bytes —
+    /// If the target position falls within the currently buffered data, either
+    /// forward into unconsumed bytes or backward into retained consumed bytes,
     /// the seek is performed without any I/O. Otherwise, the seek is delegated
     /// to the underlying reader and the buffer is invalidated.
     #[expect(

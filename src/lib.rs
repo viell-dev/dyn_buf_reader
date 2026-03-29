@@ -23,7 +23,7 @@
 //! let mut reader = DynBufReader::new(Cursor::new(data.as_slice()));
 //!
 //! // Read from the underlying reader until '=' is found in the buffer.
-//! // This is not an exact operation — the buffer may receive more data
+//! // This is not an exact operation, the buffer may receive more data
 //! // than just "key=", depending on how much the underlying reader
 //! // provides in a single read.
 //! reader.fill_until(b'=').unwrap();
@@ -39,7 +39,7 @@
 //! reader.consume(4);
 //!
 //! // The read position has advanced, but consumed data is still in
-//! // the buffer — peek_behind lets you look at it.
+//! // the buffer, peek_behind lets you look at it.
 //! assert_eq!(reader.peek_behind(4), b"key=");
 //!
 //! // The remaining unconsumed data is still available going forward
