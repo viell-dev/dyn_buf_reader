@@ -1,6 +1,6 @@
 # DynBufReader
 
-[![Rust](https://github.com/viell-dev/dyn_buf_reader/actions/workflows/rust.yml/badge.svg)](https://github.com/viell-dev/dyn_buf_reader/actions/workflows/rust.yml)
+[![Checks](https://github.com/viell-dev/dyn_buf_reader/actions/workflows/checks.yml/badge.svg)](https://github.com/viell-dev/dyn_buf_reader/actions/workflows/checks.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 <!--
@@ -85,7 +85,8 @@ let reader = DynBufReader::builder(Cursor::new(vec![0u8; 1024]))
 
 ## Minimum Supported Rust Version
 
-The MSRV is **1.87.0**. This is checked in CI across Linux, Windows, and macOS.
+The MSRV is **1.87.0**. CI runs the full quality gate on stable Rust and an MSRV compatibility
+check on Linux.
 
 ## License
 

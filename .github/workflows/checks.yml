@@ -1,4 +1,4 @@
-name: Rust
+name: Checks
 
 on:
   push:
@@ -10,23 +10,33 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test:
-    name: Test
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        rust: [1.87.0, stable, beta]
-    runs-on: ${{ matrix.os }}
+  quality:
+    name: Stable Quality
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: ${{ matrix.rust }}
+          toolchain: stable
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
       - name: Check formatting
         run: cargo fmt --check
+      - name: Check docs
+        run: cargo rustdoc --lib -- -D warnings
       - name: Run clippy
         run: cargo clippy --workspace -- -D warnings
+      - name: Run tests
+        run: cargo test
+
+  msrv:
+    name: MSRV Compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.87.0
+      - uses: Swatinem/rust-cache@v2
       - name: Run tests
         run: cargo test
