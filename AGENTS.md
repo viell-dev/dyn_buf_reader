@@ -21,9 +21,11 @@ Single-crate library with four modules:
   management. This is the core data structure.
 - **`read`**, `DynBufRead` trait: extends `BufRead` with buffer inspection and memory management.
 - **`reader`**, `DynBufReader<R>` + `DynBufReaderBuilder<R>`: wraps any `Read` with a `Buffer`,
-  implements `Read`, `BufRead`, `DynBufRead`, and `Seek`.
-- **`constants`**, `CHUNK_SIZE` (8 KiB), `DEFAULT_MAX_SIZE` (256 MiB), `THEORETICAL_MAX_SIZE`. All
-  buffer capacities are multiples of `CHUNK_SIZE`.
+  implements `Read`, `BufRead`, `DynBufRead`, and `Seek`. Treat this module as a work in
+  progress rather than a style/reference target.
+- **`constants`**, `CHUNK_SIZE` (8 KiB), `DEFAULT_MAX_CAPACITY` (256 MiB), and the internal
+  `MAX_SUPPORTED_CAPACITY` / `MAX_EXPONENTIAL_CAPACITY`. All buffer capacities are multiples of
+  `CHUNK_SIZE`; the internal max constants are technical ceilings, not public tuning knobs.
 
 Key design: `Buffer` does the heavy lifting; `DynBufReader` delegates to it while enforcing
 `max_capacity` and providing the trait impls. Tests live in sibling `tests.rs` files per module.
