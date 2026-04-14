@@ -90,7 +90,32 @@ check on Linux.
 
 ## License
 
-Licensed under the GNU General Public License v3.0 ([COPYING.md](COPYING.md))
+`DynBufReader` is distributed under `GPL-3.0-only` ([COPYING.md](COPYING.md))
+**with the Universal FOSS Exception, Version 1.0** as an additional permission
+under Section 7 of the GPL ([LICENSE-EXCEPTION.md](LICENSE-EXCEPTION.md)).
+
+In practice, that means:
+
+- **Other Free and Open Source projects can use `DynBufReader` freely**, even
+  under licenses that would otherwise be GPL-incompatible — Apache-2.0, MIT,
+  BSD variants, MPL-2.0, LGPL, and any other OSI-approved or FSF-free license.
+  You do not need to relicense your project under `GPL-3.0-only` to link
+  against `DynBufReader`. You also do not need to ask for permission. This is
+  the main reason the exception exists.
+- **GPL-3.0-compatible projects** can of course use it under the plain terms
+  of `GPL-3.0-only`.
+- **Closed-source, proprietary, or otherwise non-FOSS use** is not covered by
+  the public license or the FOSS exception. If you want to use `DynBufReader`
+  inside a non-FOSS product or service, a separate alternative license grant
+  may be available on request. See [ALTERNATIVE-LICENSE.md](ALTERNATIVE-LICENSE.md)
+  for the template terms and how to ask. The project is not run as a
+  commercial offering, so non-profit and non-commercial grants are usually
+  free of charge; commercial grants are negotiable. A public record of
+  alternative license grants that have been issued is kept in
+  [GRANTS.md](GRANTS.md).
+
+Contributions are accepted under the contributor terms in [CLA.md](CLA.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the submission policy.
 
 ## AI Use Disclaimer
 
