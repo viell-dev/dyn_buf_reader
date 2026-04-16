@@ -4,11 +4,9 @@ Thanks for taking the time to contribute to `DynBufReader`.
 
 ## Licensing of contributions
 
-The public release of `DynBufReader` is distributed under `GPL-3.0-only`
-together with the Universal FOSS Exception, Version 1.0 (see
-[LICENSE-EXCEPTION.md](LICENSE-EXCEPTION.md)). The maintainer may also grant
-narrowly-scoped alternative licenses on request, as described in
-[ALTERNATIVE-LICENSE.md](ALTERNATIVE-LICENSE.md).
+The public release of `DynBufReader` is distributed under `AGPL-3.0-only`. The
+maintainer may also grant narrowly-scoped alternative licenses on request, as
+described in [ALTERNATIVE-LICENSE.md](ALTERNATIVE-LICENSE.md).
 
 Because of that second point, contributions are accepted only under the
 contributor license agreement in [CLA.md](CLA.md). The CLA is what

@@ -37,7 +37,7 @@ The CLA gives the Maintainer broad rights over each Contribution, including
 the right to sublicense it under alternative terms. That power is load-bearing
 for [ALTERNATIVE-LICENSE.md](ALTERNATIVE-LICENSE.md): without it, the
 Maintainer could not offer narrowly-scoped non-FOSS grants to Licensees who
-cannot use the public release under `GPL-3.0-only`.
+cannot use the public release under `AGPL-3.0-only`.
 
 The same power would, in principle, also allow the Maintainer to simply
 relicense the canonical Project under proprietary terms and stop releasing it
@@ -61,7 +61,7 @@ acquires them subject to this covenant.
 It does **not** restrict what third parties do with their own forks or
 derivative works under the Public License. Third parties are free to do
 whatever the Public License allows, including maintaining forks under
-`GPL-3.0-only`. This covenant only constrains the Maintainer.
+`AGPL-3.0-only`. This covenant only constrains the Maintainer.
 
 ## 2. The public release stays FOSS
 
@@ -72,15 +72,13 @@ distributed under a **FOSS license** — specifically, a license that is:
 - a strong copyleft license in the GPL family, or a successor to it of
   comparable character.
 
-As of this covenant, that license is `GPL-3.0-only` together with the
-Universal FOSS Exception, Version 1.0 (see
-[LICENSE-EXCEPTION.md](LICENSE-EXCEPTION.md)), and the Maintainer's intent is
-to stay on `GPL-3.0-only` for the foreseeable future. The Maintainer has
-deliberately chosen `GPL-3.0-only` rather than `GPL-3.0-or-later` so that
-future GPL versions do not automatically apply to the Project sight unseen.
+As of this covenant, that license is `AGPL-3.0-only`, and the Maintainer's
+intent is to stay on `AGPL-3.0-only` for the foreseeable future. The Maintainer has
+deliberately chosen `AGPL-3.0-only` rather than `AGPL-3.0-or-later` so that
+future AGPL versions do not automatically apply to the Project sight unseen.
 
 The Maintainer may move the Project to a different license satisfying the
-conditions above — for example, to a future `GPL-4.0-only` if and when such
+conditions above — for example, to a future `AGPL-4.0-only` if and when such
 a license exists and the Maintainer is satisfied with its terms, or to
 another strong-copyleft FOSS license in comparable spirit — but any such
 move must itself produce a FOSS release under this section. The Project's

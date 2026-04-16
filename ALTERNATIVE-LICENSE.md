@@ -10,21 +10,13 @@
 
 ## Why this exists
 
-`DynBufReader` is distributed publicly under `GPL-3.0-only` together with the
-**Universal FOSS Exception, Version 1.0** (see [LICENSE-EXCEPTION.md](LICENSE-EXCEPTION.md)).
-Between those two, almost every Free and Open Source project can already use
-`DynBufReader` without asking — including projects under Apache-2.0, MIT, BSD,
-MPL-2.0, and LGPL, which would otherwise be GPL-incompatible.
-
-An alternative license grant is for the case the public license and its FOSS
-exception do **not** cover: somebody wants to use `DynBufReader` inside a
-closed-source, proprietary, or otherwise non-FOSS product or service, and
-therefore cannot comply with `GPL-3.0-only` or rely on the FOSS exception.
+`DynBufReader` is distributed publicly under `AGPL-3.0-only`. An alternative
+license grant is for the case the public license does **not** cover: somebody
+wants to use `DynBufReader` inside a closed-source, proprietary, or otherwise
+non-FOSS product or service, and therefore cannot comply with `AGPL-3.0-only`.
 
 The maintainer's default disposition is:
 
-- **Other FOSS projects** — already covered by the public license plus the FOSS
-  exception. No paperwork needed.
 - **Non-commercial, hobbyist, or non-profit proprietary use** — granted on
   request, at no charge.
 - **Small and mid-sized commercial use** — also granted on request, at no
@@ -67,9 +59,8 @@ may broaden, narrow, or replace any of them.
   Use is not a license to use the Project across Licensee's unrelated
   products, unrelated services, or unrelated internal projects; each of
   those would need its own grant.
-- **"Public License"** means `GPL-3.0-only` together with the additional
-  permission in [LICENSE-EXCEPTION.md](LICENSE-EXCEPTION.md), as the Project is
-  distributed publicly.
+- **"Public License"** means `AGPL-3.0-only`, as the Project is distributed
+  publicly.
 
 ### 3. Grant
 
@@ -83,9 +74,9 @@ license to:
   source or object form, to customers, users, and other recipients of the
   Approved Use;
 
-without being required to comply with `GPL-3.0-only` with respect to the
+without being required to comply with `AGPL-3.0-only` with respect to the
 Approved Use, and without being required to license the Approved Use itself
-under `GPL-3.0-only`.
+under `AGPL-3.0-only`.
 
 The grant covers the Project as released by the Maintainer over time.
 Licensee is free to update to newer public releases of the Project under this

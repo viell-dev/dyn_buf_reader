@@ -49,10 +49,8 @@ since there is nothing copyrightable to license.
 "Submitted" means delivered to the Maintainer or the Project by any means,
 including pull requests, patches, commits, email, and issue trackers.
 
-"Public License" means the license (together with any additional permissions)
-under which the Maintainer distributes the Project publicly. As of this
-Agreement, that is `GPL-3.0-only` with the Universal FOSS Exception, Version
-1.0, as described in [LICENSE-EXCEPTION.md](LICENSE-EXCEPTION.md).
+"Public License" means the license under which the Maintainer distributes the
+Project publicly. As of this Agreement, that is `AGPL-3.0-only`.
 
 ## 2. Copyright Retention
 

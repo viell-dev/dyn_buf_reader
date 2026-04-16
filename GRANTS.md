@@ -7,14 +7,8 @@ the `DynBufReader` maintainer under the template in
 It is informational, not authoritative. The signed agreement with each
 Licensee is what actually controls that Licensee's rights. The list here
 exists so that anyone reading the project can see, at a glance, who has been
-given exceptions to the public `GPL-3.0-only` + Universal FOSS Exception
-terms, what kind of work those exceptions cover, and how many quietly exist
-that are not listed by name.
-
-Other Free and Open Source projects do **not** appear here. They do not need
-an alternative grant — the Universal FOSS Exception in
-[LICENSE-EXCEPTION.md](LICENSE-EXCEPTION.md) already covers them. This page
-is only for the non-FOSS cases that the alternative grant exists to handle.
+given exceptions to the public `AGPL-3.0-only` terms, what kind of work those
+exceptions cover, and how many quietly exist that are not listed by name.
 
 ## How listings work
 

@@ -1,7 +1,7 @@
 # DynBufReader
 
 [![Checks](https://github.com/viell-dev/dyn_buf_reader/actions/workflows/checks.yml/badge.svg)](https://github.com/viell-dev/dyn_buf_reader/actions/workflows/checks.yml)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPLv3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
 <!--
 [![Crates.io](https://img.shields.io/crates/v/dyn_buf_reader.svg)](https://crates.io/crates/dyn_buf_reader)
@@ -90,29 +90,16 @@ check on Linux.
 
 ## License
 
-`DynBufReader` is distributed under `GPL-3.0-only` ([COPYING.md](COPYING.md))
-**with the Universal FOSS Exception, Version 1.0** as an additional permission
-under Section 7 of the GPL ([LICENSE-EXCEPTION.md](LICENSE-EXCEPTION.md)).
+`DynBufReader` is distributed under `AGPL-3.0-only` ([COPYING.md](COPYING.md)).
 
-In practice, that means:
-
-- **Other Free and Open Source projects can use `DynBufReader` freely**, even
-  under licenses that would otherwise be GPL-incompatible — Apache-2.0, MIT,
-  BSD variants, MPL-2.0, LGPL, and any other OSI-approved or FSF-free license.
-  You do not need to relicense your project under `GPL-3.0-only` to link
-  against `DynBufReader`. You also do not need to ask for permission. This is
-  the main reason the exception exists.
-- **GPL-3.0-compatible projects** can of course use it under the plain terms
-  of `GPL-3.0-only`.
-- **Closed-source, proprietary, or otherwise non-FOSS use** is not covered by
-  the public license or the FOSS exception. If you want to use `DynBufReader`
-  inside a non-FOSS product or service, a separate alternative license grant
-  may be available on request. See [ALTERNATIVE-LICENSE.md](ALTERNATIVE-LICENSE.md)
-  for the template terms and how to ask. The project is not run as a
-  commercial offering, so non-profit and non-commercial grants are usually
-  free of charge; commercial grants are negotiable. A public record of
-  alternative license grants that have been issued is kept in
-  [GRANTS.md](GRANTS.md).
+Closed-source, proprietary, or otherwise non-FOSS use is not covered by the
+public license. If you want to use `DynBufReader` inside a non-FOSS product or
+service, a separate alternative license grant may be available on request. See
+[ALTERNATIVE-LICENSE.md](ALTERNATIVE-LICENSE.md) for the template terms and how
+to ask. The project is not run as a commercial offering, so non-profit and
+non-commercial grants are usually free of charge; commercial grants are
+negotiable. A public record of alternative license grants that have been issued
+is kept in [GRANTS.md](GRANTS.md).
 
 Contributions are accepted under the contributor terms in [CLA.md](CLA.md).
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the submission policy.
