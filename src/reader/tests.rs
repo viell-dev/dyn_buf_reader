@@ -9,7 +9,8 @@
 use super::*;
 use crate::buffer::tests::InterruptOnceReader;
 use crate::constants::CHUNK_SIZE;
-use std::io::{Cursor, IoSliceMut, Read, Seek, SeekFrom};
+use std::collections::VecDeque;
+use std::io::{self, Cursor, IoSliceMut, Read, Seek, SeekFrom};
 
 // -----------------------------------------------------------------------------
 // DynBufReader - Creation
@@ -874,4 +875,1023 @@ fn test_reader_seek_relative() {
     reader.seek_relative(0).unwrap();
     assert_eq!(reader.buffer.pos(), 5);
     assert_eq!(reader.buffer.len(), data.len()); // Buffer NOT invalidated
+}
+
+// --- Codex: ------------------------------------------------------------------
+
+struct ScriptedReader {
+    steps: VecDeque<io::Result<Vec<u8>>>,
+}
+
+impl ScriptedReader {
+    fn new(steps: impl IntoIterator<Item = io::Result<Vec<u8>>>) -> Self {
+        Self {
+            steps: steps.into_iter().collect(),
+        }
+    }
+}
+
+impl Read for ScriptedReader {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let Some(step) = self.steps.pop_front() else {
+            return Ok(0);
+        };
+
+        match step {
+            Ok(bytes) => {
+                let bytes_read = bytes.len().min(buf.len());
+                buf[..bytes_read].copy_from_slice(&bytes[..bytes_read]);
+
+                if bytes_read < bytes.len() {
+                    self.steps.push_front(Ok(bytes[bytes_read..].to_vec()));
+                }
+
+                Ok(bytes_read)
+            }
+            Err(error) => Err(error),
+        }
+    }
+}
+
+fn patterned_bytes(len: usize) -> Vec<u8> {
+    (0..len)
+        .map(|index| b'a' + u8::try_from(index % 26).unwrap())
+        .collect()
+}
+
+// -----------------------------------------------------------------------------
+// DynBufReader - Debug
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_codex_reader_debug() {
+    // Start with an empty reader so the format is easy to spot-check.
+    let reader = DynBufReader::new(Cursor::new("Hello"));
+    let debug = format!("{reader:?}");
+
+    // The debug output should name the type and summarize the buffer.
+    assert!(debug.contains("DynBufReader"));
+    assert!(debug.contains("reader"));
+    assert!(debug.contains("buffer"));
+    assert!(debug.contains("0/"));
+
+    // Fill some data so the unconsumed count is non-zero.
+    let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
+    reader.fill_amount(13).unwrap();
+    let debug = format!("{reader:?}");
+
+    // The buffer summary should show the unconsumed count we expect.
+    assert!(debug.contains("13/"));
+
+    // Consume a few bytes so the summary has to track the remaining window.
+    reader.consume(5);
+    let debug = format!("{reader:?}");
+
+    // The unconsumed side should shrink to match the new logical position.
+    assert!(debug.contains("8/"));
+}
+
+// -----------------------------------------------------------------------------
+// DynBufReader - Creation
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_codex_reader_new() {
+    // Build a reader with the defaults so we can inspect the initial state.
+    let reader = DynBufReader::new(Cursor::<&str>::default());
+
+    // The reader should start with a default buffer and default cap.
+    assert_eq!(reader.buffer, Buffer::default());
+    assert_eq!(reader.max_capacity, DEFAULT_MAX_CAPACITY);
+    assert_eq!(reader.reader, Cursor::default());
+}
+
+#[test]
+fn test_codex_reader_builder() {
+    // Start with only a custom max capacity.
+    let reader = DynBufReader::builder(Cursor::<&str>::default())
+        .max_capacity(CHUNK_SIZE + 123)
+        .build();
+
+    // The max should round up, while the initial buffer stays at the default size.
+    assert_eq!(reader.buffer, Buffer::default());
+    assert_eq!(reader.max_capacity, 2 * CHUNK_SIZE);
+
+    // Now only customize the initial capacity.
+    let reader = DynBufReader::builder(Cursor::<&str>::default())
+        .initial_capacity(3 * CHUNK_SIZE)
+        .build();
+
+    // The buffer should honor the requested starting size.
+    assert_eq!(reader.buffer, Buffer::with_capacity(3 * CHUNK_SIZE));
+    assert_eq!(reader.max_capacity, DEFAULT_MAX_CAPACITY);
+
+    // Finally, set both values with max already large enough.
+    let reader = DynBufReader::builder(Cursor::<&str>::default())
+        .initial_capacity(4 * CHUNK_SIZE)
+        .max_capacity(8 * CHUNK_SIZE)
+        .build();
+
+    // Both values should be preserved after builder normalization.
+    assert_eq!(reader.buffer.cap(), 4 * CHUNK_SIZE);
+    assert_eq!(reader.max_capacity, 8 * CHUNK_SIZE);
+
+    // If max is too small, the builder should raise it to the initial capacity.
+    let reader = DynBufReader::builder(Cursor::<&str>::default())
+        .initial_capacity(8 * CHUNK_SIZE)
+        .max_capacity(2 * CHUNK_SIZE)
+        .build();
+
+    // This keeps the reader internally consistent without shrinking the buffer.
+    assert_eq!(reader.buffer.cap(), 8 * CHUNK_SIZE);
+    assert_eq!(reader.max_capacity, 8 * CHUNK_SIZE);
+}
+
+#[test]
+fn test_codex_reader_into_inner() {
+    // Fill some data first so the inner cursor has definitely advanced.
+    let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
+    reader.fill_amount(13).unwrap();
+
+    // Taking the inner reader should give us the advanced cursor back.
+    let inner = reader.into_inner();
+    assert_eq!(
+        inner.position(),
+        u64::try_from("Hello, World!".len()).unwrap()
+    );
+}
+
+#[test]
+fn test_codex_reader_get_ref() {
+    // Start at the beginning of a simple cursor.
+    let reader = DynBufReader::new(Cursor::new("Hello"));
+
+    // A shared reference should expose the inner cursor as-is.
+    let inner: &Cursor<&str> = reader.get_ref();
+    assert_eq!(inner.position(), 0);
+}
+
+#[test]
+fn test_codex_reader_get_mut() {
+    // Start with a mutable reader so we can push on the inner cursor directly.
+    let mut reader = DynBufReader::new(Cursor::new("Hello"));
+
+    // Mutating through the inner handle should affect future reads.
+    reader.get_mut().set_position(3);
+    assert_eq!(reader.get_ref().position(), 3);
+}
+
+#[test]
+fn test_codex_reader_max_capacity() {
+    // The default constructor should use the crate-level default max.
+    let reader = DynBufReader::new(Cursor::<&str>::default());
+    assert_eq!(reader.max_capacity(), DEFAULT_MAX_CAPACITY);
+
+    // The builder should expose a custom max exactly once normalized.
+    let reader = DynBufReader::builder(Cursor::<&str>::default())
+        .max_capacity(4 * CHUNK_SIZE)
+        .build();
+    assert_eq!(reader.max_capacity(), 4 * CHUNK_SIZE);
+}
+
+// -----------------------------------------------------------------------------
+// DynBufReader - Peek Methods
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_codex_reader_peek() {
+    // An empty reader should have nothing to show.
+    let reader = DynBufReader::new(Cursor::<&str>::default());
+    assert_eq!(reader.peek(5), &[]);
+
+    // Fill a small payload so we can read from the unconsumed window.
+    let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
+    reader.fill_amount(13).unwrap();
+
+    // Peeking less than the available bytes should clamp to the request.
+    assert_eq!(reader.peek(5), b"Hello");
+
+    // Peeking the exact size should give us the whole unconsumed slice.
+    assert_eq!(reader.peek(13), b"Hello, World!");
+
+    // Peeking too far should clamp to what is actually buffered.
+    assert_eq!(reader.peek(100), b"Hello, World!");
+
+    // Peeking zero bytes should always be empty.
+    assert_eq!(reader.peek(0), &[]);
+
+    // Consuming should shift the visible window forward.
+    reader.consume(7);
+    assert_eq!(reader.peek(5), b"World");
+}
+
+#[test]
+fn test_codex_reader_peek_behind() {
+    // Before anything is consumed, there is no retained prefix to inspect.
+    let reader = DynBufReader::new(Cursor::<&str>::default());
+    assert_eq!(reader.peek_behind(5), &[]);
+
+    // Fill a payload so we can move the logical cursor through it.
+    let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
+    reader.fill_amount(13).unwrap();
+    assert_eq!(reader.peek_behind(5), &[]);
+
+    // After consuming, lookbehind should expose the retained prefix.
+    reader.consume(7);
+    assert_eq!(reader.peek_behind(5), b"llo, ");
+    assert_eq!(reader.peek_behind(7), b"Hello, ");
+
+    // Asking for more than was consumed should clamp to the retained bytes.
+    assert_eq!(reader.peek_behind(100), b"Hello, ");
+
+    // Asking for zero should stay empty just like `peek`.
+    assert_eq!(reader.peek_behind(0), &[]);
+}
+
+// -----------------------------------------------------------------------------
+// DynBufReader - Fill Methods
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_codex_reader_fill() {
+    // First, show that `fill` performs one append into existing spare capacity.
+    let mut reader = DynBufReader::new(ScriptedReader::new([
+        Ok(b"abc".to_vec()),
+        Ok(b"def".to_vec()),
+    ]));
+    assert_eq!(reader.fill().unwrap(), 3);
+    reader.consume(2);
+    let prefix = reader.peek_behind(2).to_vec();
+    assert_eq!(reader.fill().unwrap(), 3);
+
+    // The newly-read bytes should append, and the retained prefix should survive.
+    assert_eq!(reader.buffer(), b"abcdef");
+    assert_eq!(reader.peek_behind(2), prefix.as_slice());
+
+    // Next, fill the entire current capacity so a later call has no room to use.
+    let mut reader = DynBufReader::builder(ScriptedReader::new([
+        Ok(patterned_bytes(CHUNK_SIZE)),
+        Ok(b"later".to_vec()),
+    ]))
+    .initial_capacity(CHUNK_SIZE)
+    .build();
+    assert_eq!(reader.fill().unwrap(), CHUNK_SIZE);
+    assert_eq!(reader.fill().unwrap(), 0);
+
+    // A zero with `len == cap` means the buffer was already full.
+    assert_eq!(reader.buffer.len(), reader.buffer.cap());
+
+    // Finally, leave spare capacity but no input so EOF is the only explanation.
+    let mut reader = DynBufReader::new(ScriptedReader::new(Vec::<io::Result<Vec<u8>>>::new()));
+    assert_eq!(reader.fill().unwrap(), 0);
+
+    // Here `len < cap`, so the zero came from EOF instead of a full buffer.
+    assert!(reader.buffer.len() < reader.buffer.cap());
+}
+
+#[test]
+fn test_codex_reader_fill_while() {
+    // Start with a controlled two-step reader so we can preserve lookbehind across a fill.
+    let mut reader = DynBufReader::new(ScriptedReader::new([
+        Ok(b"abc".to_vec()),
+        Ok(b"def".to_vec()),
+    ]));
+    reader.fill().unwrap();
+    reader.consume(2);
+    let prefix = reader.peek_behind(2).to_vec();
+    let read = reader.fill_while(|buf| buf.len() < 4).unwrap();
+
+    // The second chunk should append and keep the consumed prefix intact.
+    assert_eq!(read, 3);
+    assert_eq!(reader.buffer(), b"abcdef");
+    assert_eq!(reader.peek_behind(2), prefix.as_slice());
+
+    // Now seed a newline so the predicate is already false before any I/O happens.
+    let mut reader = DynBufReader::new(Cursor::new(b"line\nrest".as_slice()));
+    reader.fill_until(b'\n').unwrap();
+    let len_before = reader.buffer.len();
+    let read = reader.fill_while(|buf| !buf.contains(&b'\n')).unwrap();
+
+    // A zero with unchanged length means the request was already satisfied.
+    assert_eq!(read, 0);
+    assert_eq!(reader.buffer.len(), len_before);
+
+    // Next, read to EOF without ever satisfying the predicate.
+    let mut reader = DynBufReader::new(Cursor::new(b"unterminated".as_slice()));
+    assert_eq!(
+        reader.fill_while(|buf| !buf.contains(&b'\n')).unwrap(),
+        b"unterminated".len()
+    );
+    let read = reader.fill_while(|buf| !buf.contains(&b'\n')).unwrap();
+
+    // A zero while there is still room to grow means EOF.
+    assert_eq!(read, 0);
+    assert!(reader.buffer.len() < reader.max_capacity());
+
+    // Finally, hit the configured max and call again with the predicate still unsatisfied.
+    let mut reader = DynBufReader::builder(Cursor::new(patterned_bytes(2 * CHUNK_SIZE)))
+        .max_capacity(CHUNK_SIZE)
+        .build();
+    assert_eq!(
+        reader.fill_while(|buf| !buf.contains(&b'\n')).unwrap(),
+        CHUNK_SIZE
+    );
+    let read = reader.fill_while(|buf| !buf.contains(&b'\n')).unwrap();
+
+    // A zero at `max_capacity` is the indirect signal that the cap stopped us.
+    assert_eq!(read, 0);
+    assert_eq!(reader.buffer.len(), reader.max_capacity());
+}
+
+#[test]
+fn test_codex_reader_fill_amount() {
+    // Read an exact amount from a source with plenty of data.
+    let mut reader = DynBufReader::new(Cursor::new(patterned_bytes(3 * CHUNK_SIZE)));
+    let read = reader.fill_amount(3 * CHUNK_SIZE).unwrap();
+
+    // `fill_amount` should return how many bytes actually landed in the buffer.
+    assert_eq!(read, 3 * CHUNK_SIZE);
+    assert_eq!(reader.buffer.len(), 3 * CHUNK_SIZE);
+
+    // If the reader runs out first, we should get the shorter count instead of an error.
+    let mut reader = DynBufReader::new(Cursor::new(b"short".to_vec()));
+    let read = reader.fill_amount(1000).unwrap();
+    assert_eq!(read, 5);
+    assert_eq!(reader.buffer.len(), 5);
+
+    // Fill part of the cap, then consume some bytes so we have a retained prefix to preserve.
+    let mut reader = DynBufReader::builder(ScriptedReader::new([
+        Ok(patterned_bytes(CHUNK_SIZE + 128)),
+        Ok(patterned_bytes(CHUNK_SIZE - 128)),
+    ]))
+    .max_capacity(2 * CHUNK_SIZE)
+    .build();
+    reader.fill_amount(CHUNK_SIZE + 128).unwrap();
+    reader.consume(128);
+    let prefix = reader.peek_behind(128).to_vec();
+    let read = reader.fill_amount(CHUNK_SIZE).unwrap();
+
+    // The request should clamp to the remaining room instead of erroring.
+    assert_eq!(read, CHUNK_SIZE - 128);
+    assert_eq!(reader.buffer.len(), 2 * CHUNK_SIZE);
+    assert_eq!(reader.peek_behind(128), prefix.as_slice());
+
+    // Interrupted reads should be retried just like they are in the buffer itself.
+    let inner = Cursor::new(b"Hello, World!");
+    let scripted = InterruptOnceReader {
+        inner,
+        interrupted: false,
+    };
+    let mut reader = DynBufReader::new(scripted);
+    let read = reader.fill_amount(13).unwrap();
+    assert_eq!(read, 13);
+    assert_eq!(reader.buffer(), b"Hello, World!");
+}
+
+#[test]
+fn test_codex_reader_fill_exact() {
+    // Start with a simple success case that appends while preserving lookbehind.
+    let mut reader = DynBufReader::new(Cursor::new(b"abcdefghi".to_vec()));
+    reader.fill_exact(6).unwrap();
+    reader.consume(2);
+    let prefix = reader.peek_behind(2).to_vec();
+    reader.fill_exact(3).unwrap();
+
+    // The reader should now hold the full payload, with the consumed prefix untouched.
+    assert_eq!(reader.buffer(), b"abcdefghi");
+    assert_eq!(reader.peek_behind(2), prefix.as_slice());
+
+    // If EOF arrives before the full request, the call should fail hard.
+    let mut reader = DynBufReader::new(Cursor::new(b"short".to_vec()));
+    let err = reader.fill_exact(1000).unwrap_err();
+    assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
+
+    // Now hit the max-capacity guard without compacting away a retained prefix first.
+    let mut reader = DynBufReader::builder(Cursor::new(patterned_bytes(3 * CHUNK_SIZE)))
+        .max_capacity(2 * CHUNK_SIZE)
+        .build();
+    reader.fill_exact(CHUNK_SIZE + 128).unwrap();
+    reader.consume(128);
+    let len_before = reader.buffer.len();
+    let pos_before = reader.buffer.pos();
+    let prefix = reader.peek_behind(128).to_vec();
+    let err = reader.fill_exact(CHUNK_SIZE).unwrap_err();
+
+    // This should fail with guidance instead of silently compacting for us.
+    assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    assert!(err.to_string().contains("compact()"));
+    assert_eq!(reader.buffer.len(), len_before);
+    assert_eq!(reader.buffer.pos(), pos_before);
+    assert_eq!(reader.peek_behind(128), prefix.as_slice());
+
+    // Once we compact explicitly, the exact same request should fit.
+    reader.compact();
+    reader.fill_exact(CHUNK_SIZE).unwrap();
+    assert_eq!(reader.buffer.len(), 2 * CHUNK_SIZE);
+    assert_eq!(reader.buffer.pos(), 0);
+}
+
+#[test]
+fn test_codex_reader_fill_to_end() {
+    // Read an entire small payload into the managed buffer.
+    let mut reader = DynBufReader::new(Cursor::new(vec![42u8; 100]));
+    let read = reader.fill_to_end().unwrap();
+    assert_eq!(read, 100);
+    assert_eq!(reader.buffer.len(), 100);
+
+    // An empty reader should stay empty and report zero.
+    let mut reader = DynBufReader::new(Cursor::new(Vec::<u8>::new()));
+    let read = reader.fill_to_end().unwrap();
+    assert_eq!(read, 0);
+    assert!(reader.buffer.is_empty());
+
+    // If the configured max is smaller than the source, stop cleanly at the cap.
+    let mut reader = DynBufReader::builder(Cursor::new(patterned_bytes(4 * CHUNK_SIZE)))
+        .max_capacity(2 * CHUNK_SIZE)
+        .build();
+    let read = reader.fill_to_end().unwrap();
+    assert_eq!(read, 2 * CHUNK_SIZE);
+    assert_eq!(reader.buffer.len(), 2 * CHUNK_SIZE);
+
+    // Finally, prove that type-level fills keep the retained prefix alive.
+    let data = patterned_bytes(2 * CHUNK_SIZE);
+    let mut reader = DynBufReader::new(ScriptedReader::new([
+        Ok(data[..16].to_vec()),
+        Ok(data[16..].to_vec()),
+    ]));
+    reader.fill_amount(16).unwrap();
+    reader.consume(4);
+    let prefix = reader.peek_behind(4).to_vec();
+    let read = reader.fill_to_end().unwrap();
+
+    // We should append the remaining bytes without losing lookbehind.
+    assert_eq!(read, data.len() - 16);
+    assert_eq!(reader.buffer(), data.as_slice());
+    assert_eq!(reader.peek_behind(4), prefix.as_slice());
+}
+
+#[test]
+fn test_codex_reader_fill_until() {
+    // Split the delimiter across reads so we exercise the incremental scan path.
+    let mut reader = DynBufReader::new(ScriptedReader::new([
+        Ok(b"key=va".to_vec()),
+        Ok(b"lue\nother".to_vec()),
+    ]));
+    let read = reader.fill_until(b'\n').unwrap();
+
+    // The method should stop once the newline becomes visible.
+    assert!(read > 0);
+    assert!(reader.buffer().contains(&b'\n'));
+
+    // If no delimiter ever appears, the method should finish at EOF.
+    let mut reader = DynBufReader::new(Cursor::new(b"no newline here".to_vec()));
+    let read = reader.fill_until(b'\n').unwrap();
+    assert_eq!(read, 15);
+    assert!(!reader.buffer().contains(&b'\n'));
+
+    // If the max is smaller than the stream, stop at the configured cap.
+    let mut reader = DynBufReader::builder(Cursor::new(vec![b'x'; 4 * CHUNK_SIZE]))
+        .max_capacity(2 * CHUNK_SIZE)
+        .build();
+    let read = reader.fill_until(b'\n').unwrap();
+    assert_eq!(read, 2 * CHUNK_SIZE);
+    assert_eq!(reader.buffer.len(), 2 * CHUNK_SIZE);
+
+    // Type-level delimiter fills should still preserve lookbehind between calls.
+    let mut reader = DynBufReader::new(Cursor::new(b"key=value\nother".to_vec()));
+    reader.fill_until(b'=').unwrap();
+    reader.consume(4);
+    let prefix = reader.peek_behind(4).to_vec();
+    reader.fill_until(b'\n').unwrap();
+    assert_eq!(reader.peek_behind(4), prefix.as_slice());
+}
+
+#[test]
+fn test_codex_reader_fill_until_char() {
+    // Split a multi-byte UTF-8 character across reads to prove boundary handling.
+    let mut reader = DynBufReader::new(ScriptedReader::new([
+        Ok(vec![b'H', b'e', b'l', b'l', b'o', b',', b' ', 0xE4, 0xB8]),
+        Ok(vec![0x96, 0xE7, 0x95, 0x8C, b'!']),
+    ]));
+    let read = reader.fill_until_char('世').unwrap();
+
+    // The first completed `世` should stop the read even though it spanned two chunks.
+    assert!(read > 0);
+    assert!(reader.buffer.as_str().unwrap().contains('世'));
+
+    // EOF without a match should just return the number of bytes read.
+    let mut reader = DynBufReader::new(Cursor::new("no match".as_bytes().to_vec()));
+    let read = reader.fill_until_char('界').unwrap();
+    assert_eq!(read, 8);
+
+    // A small max should cap the search without producing an error.
+    let mut reader = DynBufReader::builder(Cursor::new(vec![b'x'; 4 * CHUNK_SIZE]))
+        .max_capacity(2 * CHUNK_SIZE)
+        .build();
+    let read = reader.fill_until_char('界').unwrap();
+    assert_eq!(read, 2 * CHUNK_SIZE);
+
+    // Like the other type-level fills, this one should preserve consumed prefix bytes.
+    let mut reader = DynBufReader::new(Cursor::new("ab世cd界ef".as_bytes().to_vec()));
+    reader.fill_until_char('世').unwrap();
+    reader.consume(2);
+    let prefix = reader.peek_behind(2).to_vec();
+    reader.fill_until_char('界').unwrap();
+    assert_eq!(reader.peek_behind(2), prefix.as_slice());
+}
+
+#[test]
+fn test_codex_reader_fill_until_str() {
+    // Split the needle across reads so the overlap logic has real work to do.
+    let mut reader = DynBufReader::new(ScriptedReader::new([
+        Ok(b"Hello, World!E".to_vec()),
+        Ok(b"ND more data".to_vec()),
+    ]));
+    let read = reader.fill_until_str("END").unwrap();
+
+    // The search should stop as soon as the cross-boundary match appears.
+    assert!(read > 0);
+    assert!(reader.buffer.as_str().unwrap().contains("END"));
+
+    // If the needle never appears, EOF should end the search cleanly.
+    let mut reader = DynBufReader::new(Cursor::new(b"no match here".to_vec()));
+    let read = reader.fill_until_str("END").unwrap();
+    assert_eq!(read, 13);
+
+    // If the configured max is smaller than the input, stop there instead.
+    let mut reader = DynBufReader::builder(Cursor::new(vec![b'x'; 4 * CHUNK_SIZE]))
+        .max_capacity(2 * CHUNK_SIZE)
+        .build();
+    let read = reader.fill_until_str("END").unwrap();
+    assert_eq!(read, 2 * CHUNK_SIZE);
+
+    // An empty needle is a no-op by design.
+    let mut reader = DynBufReader::new(Cursor::new(b"anything".to_vec()));
+    assert_eq!(reader.fill_until_str("").unwrap(), 0);
+
+    // Retained lookbehind should survive across repeated string searches too.
+    let mut reader = DynBufReader::new(Cursor::new(b"abc123ENDtail".to_vec()));
+    reader.fill_until_str("123").unwrap();
+    reader.consume(3);
+    let prefix = reader.peek_behind(3).to_vec();
+    reader.fill_until_str("END").unwrap();
+    assert_eq!(reader.peek_behind(3), prefix.as_slice());
+}
+
+// -----------------------------------------------------------------------------
+// impl Read
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_codex_reader_read() {
+    // A fresh reader with no buffered data should delegate straight to the inner reader.
+    let mut reader = DynBufReader::new(Cursor::<&str>::default());
+    let mut buf = [0u8; 16];
+    let read = reader.read(&mut buf).unwrap();
+    assert_eq!(read, 0);
+
+    // With a real payload, the same direct path should still produce bytes.
+    let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
+    let read = reader.read(&mut buf).unwrap();
+    assert_eq!(read, 13);
+    assert_eq!(&buf[..read], b"Hello, World!");
+    assert_eq!(reader.buffer.len(), 0);
+
+    // Seed buffered data so the read comes from the managed buffer first.
+    let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
+    reader.fill_amount(13).unwrap();
+    let mut small = [0u8; 5];
+    let read = reader.read(&mut small).unwrap();
+    assert_eq!(read, 5);
+    assert_eq!(&small, b"Hello");
+    assert_eq!(reader.buffer.pos(), 5);
+
+    // Once the buffer is exhausted, `read` should clear lookbehind and delegate again.
+    let mut reader = DynBufReader::new(ScriptedReader::new([
+        Ok(b"Hello".to_vec()),
+        Ok(b", World!".to_vec()),
+    ]));
+    reader.fill_amount(5).unwrap();
+    reader.consume(5);
+    assert_eq!(reader.peek_behind(5), b"Hello");
+    let mut buf = [0u8; 3];
+    let read = reader.read(&mut buf).unwrap();
+    assert_eq!(read, 3);
+    assert_eq!(&buf, b", W");
+    assert_eq!(reader.peek_behind(5), &[]);
+}
+
+#[test]
+fn test_codex_reader_read_vectored() {
+    // Small destination buffers should read through the buffered window.
+    let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
+    let mut first = [0u8; 5];
+    let mut second = [0u8; 10];
+    let mut bufs = [IoSliceMut::new(&mut first), IoSliceMut::new(&mut second)];
+    let read = reader.read_vectored(&mut bufs).unwrap();
+
+    // The vectored read should stitch the bytes across both slices.
+    assert_eq!(read, 13);
+    assert_eq!(&first, b"Hello");
+    assert_eq!(&second[..8], b", World!");
+    assert_eq!(reader.buffer.pos(), 13);
+
+    // Large targets on an exhausted buffer should delegate straight to the inner reader.
+    let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
+    let mut big = [0u8; CHUNK_SIZE];
+    let mut bufs = [IoSliceMut::new(&mut big)];
+    let read = reader.read_vectored(&mut bufs).unwrap();
+    assert_eq!(read, 13);
+    assert_eq!(&big[..13], b"Hello, World!");
+    assert_eq!(reader.buffer.len(), 0);
+
+    // That exhausted delegation path should also wipe retained lookbehind.
+    let mut reader = DynBufReader::new(ScriptedReader::new([
+        Ok(b"Hello".to_vec()),
+        Ok(b", World!".to_vec()),
+    ]));
+    reader.fill_amount(5).unwrap();
+    reader.consume(5);
+    assert_eq!(reader.peek_behind(5), b"Hello");
+    let mut big = [0u8; CHUNK_SIZE];
+    let mut bufs = [IoSliceMut::new(&mut big)];
+    let read = reader.read_vectored(&mut bufs).unwrap();
+    assert_eq!(read, 8);
+    assert_eq!(&big[..8], b", World!");
+    assert_eq!(reader.peek_behind(5), &[]);
+}
+
+#[test]
+fn test_codex_reader_read_to_end() {
+    // With an empty internal buffer, the reader should just stream everything through.
+    let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
+    let mut out = Vec::new();
+    let read = reader.read_to_end(&mut out).unwrap();
+    assert_eq!(read, 13);
+    assert_eq!(out, b"Hello, World!");
+    assert_eq!(reader.buffer.len(), 0);
+
+    // If we already buffered part of the stream, `read_to_end` should prepend it.
+    let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
+    reader.fill_amount(7).unwrap();
+    let mut out = Vec::new();
+    let read = reader.read_to_end(&mut out).unwrap();
+    assert_eq!(read, 13);
+    assert_eq!(out, b"Hello, World!");
+    assert_eq!(reader.buffer.len(), 0);
+
+    // And because this is a std-trait surface, exhausting it should drop lookbehind.
+    let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
+    reader.fill_amount(7).unwrap();
+    reader.consume(3);
+    assert_eq!(reader.peek_behind(3), b"Hel");
+    let mut out = Vec::new();
+    let read = reader.read_to_end(&mut out).unwrap();
+    assert_eq!(read, 10);
+    assert_eq!(out, b"lo, World!");
+    assert_eq!(reader.peek_behind(3), &[]);
+}
+
+#[test]
+fn test_codex_reader_read_to_string() {
+    // Valid UTF-8 should append into an empty string.
+    let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
+    let mut out = String::new();
+    let read = reader.read_to_string(&mut out).unwrap();
+    assert_eq!(read, 13);
+    assert_eq!(out, "Hello, World!");
+
+    // Invalid UTF-8 should fail without changing the destination.
+    let mut reader = DynBufReader::new(Cursor::new(vec![0xFF, 0xFE, 0xFD]));
+    let mut out = String::new();
+    let err = reader.read_to_string(&mut out).unwrap_err();
+    assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    assert_eq!(out, "");
+
+    // A non-empty string should still append on success.
+    let mut reader = DynBufReader::new(Cursor::new("World!"));
+    let mut out = String::from("Hello, ");
+    let read = reader.read_to_string(&mut out).unwrap();
+    assert_eq!(read, 6);
+    assert_eq!(out, "Hello, World!");
+
+    // An I/O error after valid UTF-8 should roll the empty-string path back completely.
+    let mut reader = DynBufReader::new(ScriptedReader::new([
+        Ok(b"abc".to_vec()),
+        Err(io::Error::other("boom")),
+    ]));
+    let mut out = String::new();
+    let err = reader.read_to_string(&mut out).unwrap_err();
+    assert_eq!(err.kind(), io::ErrorKind::Other);
+    assert_eq!(out, "");
+
+    // The non-empty-string path should also preserve its original contents on error.
+    let mut reader = DynBufReader::new(ScriptedReader::new([
+        Ok(b"abc".to_vec()),
+        Err(io::Error::other("boom")),
+    ]));
+    let mut out = String::from("keep me");
+    let err = reader.read_to_string(&mut out).unwrap_err();
+    assert_eq!(err.kind(), io::ErrorKind::Other);
+    assert_eq!(out, "keep me");
+}
+
+#[test]
+fn test_codex_reader_read_exact() {
+    // If enough data is already buffered, `read_exact` should use the fast path.
+    let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
+    reader.fill_amount(13).unwrap();
+    let mut buf = [0u8; 5];
+    reader.read_exact(&mut buf).unwrap();
+    assert_eq!(&buf, b"Hello");
+    assert_eq!(reader.buffer.pos(), 5);
+
+    // If the request crosses the buffer boundary, the method should keep going through `read`.
+    let mut reader = DynBufReader::new(ScriptedReader::new([
+        Ok(b"Hello, ".to_vec()),
+        Ok(b"World!".to_vec()),
+    ]));
+    reader.fill_amount(7).unwrap();
+    let mut buf = [0u8; 13];
+    reader.read_exact(&mut buf).unwrap();
+    assert_eq!(&buf, b"Hello, World!");
+    assert_eq!(reader.buffer.len(), 0);
+
+    // A short source should still surface `UnexpectedEof`.
+    let mut reader = DynBufReader::new(Cursor::new("Hi"));
+    let mut buf = [0u8; 10];
+    let err = reader.read_exact(&mut buf).unwrap_err();
+    assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
+
+    // Interrupted reads should be retried until the request finishes.
+    let inner = Cursor::new(b"Hello, World!");
+    let scripted = InterruptOnceReader {
+        inner,
+        interrupted: false,
+    };
+    let mut reader = DynBufReader::new(scripted);
+    let mut buf = [0u8; 13];
+    reader.read_exact(&mut buf).unwrap();
+    assert_eq!(&buf, b"Hello, World!");
+}
+
+// -----------------------------------------------------------------------------
+// impl BufRead
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_codex_reader_fill_buf() {
+    // Start with a two-chunk payload so we can observe the exhausted-refill behavior.
+    let data = patterned_bytes(2 * CHUNK_SIZE);
+    let mut reader = DynBufReader::new(Cursor::new(data.clone()));
+    let first = reader.fill_buf().unwrap().to_vec();
+
+    // The initial fill should expose the first buffered window.
+    assert_eq!(first, data[..CHUNK_SIZE].to_vec());
+    assert_eq!(reader.buffer.len(), CHUNK_SIZE);
+
+    // Calling again without consuming should hand back the same window.
+    let second = reader.fill_buf().unwrap().to_vec();
+    assert_eq!(second, first);
+
+    // Consuming part of the window should shift the returned slice forward.
+    reader.consume(7);
+    let tail = reader.fill_buf().unwrap().to_vec();
+    assert_eq!(tail, data[7..CHUNK_SIZE].to_vec());
+
+    // Once the window is exhausted, `fill_buf` should clear retained bytes before refilling.
+    reader.consume(CHUNK_SIZE - 7);
+    assert!(!reader.peek_behind(5).is_empty());
+    let next = reader.fill_buf().unwrap().to_vec();
+    assert_eq!(next, data[CHUNK_SIZE..].to_vec());
+    assert_eq!(reader.peek_behind(5), &[]);
+}
+
+#[test]
+fn test_codex_reader_consume() {
+    // Fill a small payload so `consume` has something to move across.
+    let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
+    reader.fill_amount(13).unwrap();
+
+    // Consuming a small amount should advance by exactly that much.
+    reader.consume(2);
+    assert_eq!(reader.buffer.pos(), 2);
+
+    // Consuming past the end should clamp instead of overflowing.
+    reader.consume(100);
+    assert_eq!(reader.buffer.pos(), 13);
+}
+
+// -----------------------------------------------------------------------------
+// impl DynBufRead
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_codex_reader_capacity() {
+    // Use a custom initial capacity so the answer is easy to distinguish.
+    let reader = DynBufReader::builder(Cursor::<&str>::default())
+        .initial_capacity(3 * CHUNK_SIZE)
+        .build();
+
+    // The DynBufRead view should report the current buffer capacity.
+    assert_eq!(reader.capacity(), 3 * CHUNK_SIZE);
+}
+
+#[test]
+fn test_codex_reader_buffer() {
+    // Fill and consume so the buffer contains both consumed and unconsumed data.
+    let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
+    reader.fill_amount(13).unwrap();
+    reader.consume(7);
+
+    // `buffer()` should return the retained contents, not just the live suffix.
+    assert_eq!(reader.buffer(), b"Hello, World!");
+}
+
+#[test]
+fn test_codex_reader_pos() {
+    // Move the logical cursor into the buffer.
+    let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
+    reader.fill_amount(13).unwrap();
+    reader.consume(7);
+
+    // `pos()` should report where the live window begins.
+    assert_eq!(reader.pos(), 7);
+}
+
+#[test]
+fn test_codex_reader_shrink() {
+    // Start oversized so a shrink has visible work to do.
+    let mut reader = DynBufReader::builder(Cursor::new("Hello"))
+        .initial_capacity(4 * CHUNK_SIZE)
+        .build();
+    reader.fill_amount(5).unwrap();
+
+    // Shrinking should keep the data while releasing spare capacity.
+    reader.shrink();
+    assert_eq!(reader.capacity(), CHUNK_SIZE);
+    assert_eq!(reader.buffer(), b"Hello");
+}
+
+#[test]
+fn test_codex_reader_compact() {
+    // Fill and consume so there is a real retained prefix to drop.
+    let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
+    reader.fill_amount(13).unwrap();
+    reader.consume(7);
+
+    // Compacting should move the live suffix to the front.
+    reader.compact();
+    assert_eq!(reader.pos(), 0);
+    assert_eq!(reader.buffer(), b"World!");
+}
+
+#[test]
+fn test_codex_reader_clear() {
+    // Fill and consume so there is state to reset.
+    let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
+    reader.fill_amount(13).unwrap();
+    reader.consume(7);
+    let cap = reader.capacity();
+
+    // Clearing should forget the data without giving capacity back.
+    reader.clear();
+    assert_eq!(reader.pos(), 0);
+    assert_eq!(reader.buffer(), &[]);
+    assert_eq!(reader.capacity(), cap);
+}
+
+#[test]
+fn test_codex_reader_discard() {
+    // Start with extra capacity so discard can prove it shrinks too.
+    let mut reader = DynBufReader::builder(Cursor::new("Hello, World!"))
+        .initial_capacity(4 * CHUNK_SIZE)
+        .build();
+    reader.fill_amount(13).unwrap();
+    reader.consume(7);
+
+    // Discarding should clear the data and return to the minimum size.
+    reader.discard();
+    assert_eq!(reader.pos(), 0);
+    assert_eq!(reader.buffer(), &[]);
+    assert_eq!(reader.capacity(), CHUNK_SIZE);
+}
+
+#[test]
+fn test_codex_reader_dyn_buf_read_fill() {
+    // Call the trait method explicitly so we know that surface still works.
+    let mut reader = DynBufReader::new(ScriptedReader::new([Ok(b"abc".to_vec())]));
+    let read = DynBufRead::fill(&mut reader).unwrap();
+
+    // The trait and inherent versions should agree on the byte count and buffer state.
+    assert_eq!(read, 3);
+    assert_eq!(reader.buffer(), b"abc");
+}
+
+#[test]
+fn test_codex_reader_dyn_buf_read_fill_while() {
+    // Call the trait method explicitly with a delimiter predicate.
+    let mut reader = DynBufReader::new(Cursor::new(b"abc\n".to_vec()));
+    let read = DynBufRead::fill_while(&mut reader, |buf| !buf.contains(&b'\n')).unwrap();
+
+    // The trait path should use the same reader behavior as the inherent wrapper.
+    assert_eq!(read, 4);
+    assert_eq!(reader.buffer(), b"abc\n");
+}
+
+// -----------------------------------------------------------------------------
+// DynBufReader - Seek
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_codex_reader_seek() {
+    // Seek from the start should invalidate any buffered state.
+    let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
+    reader.fill_amount(13).unwrap();
+    reader.consume(5);
+    let pos = reader.seek(SeekFrom::Start(0)).unwrap();
+    assert_eq!(pos, 0);
+    assert_eq!(reader.buffer.len(), 0);
+
+    // Seek from the end should do the same and land at the stream length.
+    let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
+    reader.fill_amount(13).unwrap();
+    let pos = reader.seek(SeekFrom::End(0)).unwrap();
+    assert_eq!(pos, u64::try_from("Hello, World!".len()).unwrap());
+    assert_eq!(reader.buffer.len(), 0);
+
+    // SeekFrom::Current must account for unconsumed bytes still sitting in the buffer.
+    let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
+    reader.fill_amount(13).unwrap();
+    reader.consume(5);
+    let pos = reader.seek(SeekFrom::Current(2)).unwrap();
+    assert_eq!(pos, 7);
+    assert_eq!(reader.buffer.len(), 0);
+    let mut buf = [0u8; 6];
+    reader.read_exact(&mut buf).unwrap();
+    assert_eq!(&buf, b"World!");
+
+    // Negative current seeks should work too once we have advanced the logical cursor.
+    let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
+    reader.fill_amount(13).unwrap();
+    reader.consume(13);
+    let pos = reader.seek(SeekFrom::Current(-6)).unwrap();
+    assert_eq!(pos, 7);
+    assert_eq!(reader.buffer.len(), 0);
+
+    // And the checked arithmetic should reject impossible offsets instead of wrapping.
+    let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
+    reader.fill_amount(13).unwrap();
+    let err = reader.seek(SeekFrom::Current(i64::MIN)).unwrap_err();
+    assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+}
+
+#[test]
+fn test_codex_reader_seek_relative() {
+    // A forward seek inside the buffered window should just advance `pos`.
+    let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
+    reader.fill_amount(13).unwrap();
+    reader.seek_relative(5).unwrap();
+    assert_eq!(reader.buffer.pos(), 5);
+    assert_eq!(reader.peek(8), b", World!");
+
+    // A backward seek inside retained lookbehind should unconsume without I/O.
+    let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
+    reader.fill_amount(13).unwrap();
+    reader.consume(7);
+    reader.seek_relative(-5).unwrap();
+    assert_eq!(reader.buffer.pos(), 2);
+    assert_eq!(reader.peek(5), b"llo, ");
+
+    // A forward seek past the buffered window should fall back to `Seek::seek`.
+    let mut cursor = Cursor::new("Hello, World!");
+    cursor.set_position(5);
+    let mut reader = DynBufReader::new(cursor);
+    reader.buffer.inject_test_data(&"Hello".as_bytes()[..5]);
+    reader.consume(3);
+    reader.seek_relative(8).unwrap();
+    assert_eq!(reader.buffer.len(), 0);
+    let mut buf = [0u8; 2];
+    reader.read_exact(&mut buf).unwrap();
+    assert_eq!(&buf, b"d!");
+
+    // A backward seek past retained lookbehind should also invalidate the buffer.
+    let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
+    reader.fill_amount(13).unwrap();
+    reader.consume(10);
+    reader.compact();
+    reader.consume(1);
+    reader.seek_relative(-2).unwrap();
+    assert_eq!(reader.buffer.len(), 0);
+    let mut buf = [0u8; 4];
+    reader.read_exact(&mut buf).unwrap();
+    assert_eq!(&buf, b"rld!");
+
+    // A zero offset should be a cheap no-op when we already have the bytes buffered.
+    let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
+    reader.fill_amount(13).unwrap();
+    reader.consume(5);
+    reader.seek_relative(0).unwrap();
+    assert_eq!(reader.buffer.pos(), 5);
+    assert_eq!(reader.buffer.len(), 13);
 }
