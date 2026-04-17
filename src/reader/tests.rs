@@ -1,6 +1,7 @@
 //! Tests for the Reader
 
 #![expect(
+    clippy::arithmetic_side_effects,
     clippy::indexing_slicing,
     clippy::unwrap_used,
     reason = "Okay in tests"
@@ -661,7 +662,7 @@ fn test_reader_into_inner() {
     reader.fill_amount(data.len()).unwrap();
 
     // Recover the inner reader
-    let inner = reader.into_inner();
+    let (inner, _) = reader.into_parts();
     assert_eq!(inner.position(), data.len() as u64);
 }
 
@@ -690,24 +691,23 @@ fn test_reader_debug() {
     let reader = DynBufReader::new(cur);
     let debug = format!("{reader:?}");
 
-    // Should contain the struct name and reader info
+    // Should contain the struct name and the delegated sub-struct
     assert!(debug.contains("DynBufReader"));
     assert!(debug.contains("reader"));
-    assert!(debug.contains("buffer"));
+    assert!(debug.contains("max_capacity"));
+    assert!(debug.contains("buffer: Buffer { pos: 0, len: 0"));
 
-    // With data in the buffer
+    // With data in the buffer, pos and len should reflect the fill.
     let cur = Cursor::new("Hello, World!");
     let mut reader = DynBufReader::new(cur);
     reader.fill_amount(13).unwrap();
     let debug = format!("{reader:?}");
+    assert!(debug.contains("buffer: Buffer { pos: 0, len: 13"));
 
-    // Buffer field should show unconsumed/capacity
-    assert!(debug.contains("13/"));
-
-    // After consuming some data
+    // After consuming some data, pos should move and len should stay put.
     reader.consume(5);
     let debug = format!("{reader:?}");
-    assert!(debug.contains("8/"));
+    assert!(debug.contains("buffer: Buffer { pos: 5, len: 13"));
 }
 
 // -----------------------------------------------------------------------------
@@ -929,26 +929,22 @@ fn test_codex_reader_debug() {
     let reader = DynBufReader::new(Cursor::new("Hello"));
     let debug = format!("{reader:?}");
 
-    // The debug output should name the type and summarize the buffer.
+    // The debug output should name the type and delegate to the buffer's own Debug.
     assert!(debug.contains("DynBufReader"));
     assert!(debug.contains("reader"));
-    assert!(debug.contains("buffer"));
-    assert!(debug.contains("0/"));
+    assert!(debug.contains("max_capacity"));
+    assert!(debug.contains("buffer: Buffer { pos: 0, len: 0"));
 
-    // Fill some data so the unconsumed count is non-zero.
+    // Fill some data so the len is non-zero.
     let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
     reader.fill_amount(13).unwrap();
     let debug = format!("{reader:?}");
+    assert!(debug.contains("buffer: Buffer { pos: 0, len: 13"));
 
-    // The buffer summary should show the unconsumed count we expect.
-    assert!(debug.contains("13/"));
-
-    // Consume a few bytes so the summary has to track the remaining window.
+    // Consume a few bytes so the buffer's pos advances.
     reader.consume(5);
     let debug = format!("{reader:?}");
-
-    // The unconsumed side should shrink to match the new logical position.
-    assert!(debug.contains("8/"));
+    assert!(debug.contains("buffer: Buffer { pos: 5, len: 13"));
 }
 
 // -----------------------------------------------------------------------------
@@ -1014,7 +1010,7 @@ fn test_codex_reader_into_inner() {
     reader.fill_amount(13).unwrap();
 
     // Taking the inner reader should give us the advanced cursor back.
-    let inner = reader.into_inner();
+    let (inner, _) = reader.into_parts();
     assert_eq!(
         inner.position(),
         u64::try_from("Hello, World!".len()).unwrap()
@@ -1487,8 +1483,8 @@ fn test_codex_reader_read_vectored() {
     let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
     let mut first = [0u8; 5];
     let mut second = [0u8; 10];
-    let mut bufs = [IoSliceMut::new(&mut first), IoSliceMut::new(&mut second)];
-    let read = reader.read_vectored(&mut bufs).unwrap();
+    let mut buffers = [IoSliceMut::new(&mut first), IoSliceMut::new(&mut second)];
+    let read = reader.read_vectored(&mut buffers).unwrap();
 
     // The vectored read should stitch the bytes across both slices.
     assert_eq!(read, 13);
@@ -1499,8 +1495,8 @@ fn test_codex_reader_read_vectored() {
     // Large targets on an exhausted buffer should delegate straight to the inner reader.
     let mut reader = DynBufReader::new(Cursor::new("Hello, World!"));
     let mut big = [0u8; CHUNK_SIZE];
-    let mut bufs = [IoSliceMut::new(&mut big)];
-    let read = reader.read_vectored(&mut bufs).unwrap();
+    let mut buffers = [IoSliceMut::new(&mut big)];
+    let read = reader.read_vectored(&mut buffers).unwrap();
     assert_eq!(read, 13);
     assert_eq!(&big[..13], b"Hello, World!");
     assert_eq!(reader.buffer.len(), 0);
@@ -1514,8 +1510,8 @@ fn test_codex_reader_read_vectored() {
     reader.consume(5);
     assert_eq!(reader.peek_behind(5), b"Hello");
     let mut big = [0u8; CHUNK_SIZE];
-    let mut bufs = [IoSliceMut::new(&mut big)];
-    let read = reader.read_vectored(&mut bufs).unwrap();
+    let mut buffers = [IoSliceMut::new(&mut big)];
+    let read = reader.read_vectored(&mut buffers).unwrap();
     assert_eq!(read, 8);
     assert_eq!(&big[..8], b", World!");
     assert_eq!(reader.peek_behind(5), &[]);
@@ -1894,4 +1890,112 @@ fn test_codex_reader_seek_relative() {
     reader.seek_relative(0).unwrap();
     assert_eq!(reader.buffer.pos(), 5);
     assert_eq!(reader.buffer.len(), 13);
+}
+
+#[test]
+fn test_fill_amount_never_exceeds_max_capacity() {
+    // Pins the invariant that after any `fill_amount` the backing `Buffer`'s capacity is
+    // still `<= max_capacity`. The reader's pre-check passes when
+    // `amt + buffer.len() <= max_capacity`, after which `Buffer::fill_amount` grows via
+    // `cap_up_linear(len + amt)`. Since `max_capacity` is a CHUNK_SIZE multiple and
+    // `max_capacity >= len + amt`, `cap_up_linear(len + amt) <= max_capacity` — so the
+    // grown cap cannot overshoot. Same reasoning applies to `fill_exact`.
+
+    let src = vec![0xA5u8; 8 * CHUNK_SIZE];
+
+    // Case 1: empty buffer, amt = max_capacity exactly.
+    let max_cap = 4 * CHUNK_SIZE;
+    let mut reader = DynBufReader::builder(Cursor::new(src.clone()))
+        .max_capacity(max_cap)
+        .build();
+    reader.fill_amount(max_cap).unwrap();
+    assert!(
+        reader.buffer.cap() <= max_cap,
+        "case 1: cap={} exceeded max_capacity={}",
+        reader.buffer.cap(),
+        max_cap,
+    );
+
+    // Case 2: pre-fill to a non-aligned length, then fill the exact remainder.
+    let mut reader = DynBufReader::builder(Cursor::new(src.clone()))
+        .max_capacity(max_cap)
+        .build();
+    reader.fill_exact(CHUNK_SIZE + 123).unwrap();
+    assert_eq!(reader.buffer.len(), CHUNK_SIZE + 123);
+    let remainder = max_cap - reader.buffer.len();
+    reader.fill_amount(remainder).unwrap();
+    assert!(
+        reader.buffer.cap() <= max_cap,
+        "case 2: cap={} exceeded max_capacity={}",
+        reader.buffer.cap(),
+        max_cap,
+    );
+
+    // Case 3: len = 1, amt = max_cap - 1 — the pre-check allows this at the boundary.
+    let mut reader = DynBufReader::builder(Cursor::new(src.clone()))
+        .max_capacity(max_cap)
+        .build();
+    reader.fill_exact(1).unwrap();
+    reader.fill_amount(max_cap - 1).unwrap();
+    assert!(
+        reader.buffer.cap() <= max_cap,
+        "case 3: cap={} exceeded max_capacity={}",
+        reader.buffer.cap(),
+        max_cap,
+    );
+
+    // Case 4: max_capacity at the CHUNK_SIZE floor.
+    let mut reader = DynBufReader::builder(Cursor::new(src.clone()))
+        .max_capacity(CHUNK_SIZE)
+        .build();
+    reader.fill_amount(CHUNK_SIZE).unwrap();
+    assert!(
+        reader.buffer.cap() <= CHUNK_SIZE,
+        "case 4: cap={} exceeded max_capacity={}",
+        reader.buffer.cap(),
+        CHUNK_SIZE,
+    );
+
+    // Case 5: non-power-of-two max_capacity, via initial_capacity raising it.
+    // `.max_capacity(x)` alone rounds via `Buffer::cap_up` (power-of-two), but the
+    // builder's `.max(buffer.cap())` can land on any CHUNK_SIZE multiple — here 3x.
+    let mut reader = DynBufReader::builder(Cursor::new(src.clone()))
+        .initial_capacity(3 * CHUNK_SIZE)
+        .max_capacity(CHUNK_SIZE)
+        .build();
+    assert_eq!(reader.max_capacity(), 3 * CHUNK_SIZE);
+    reader.fill_amount(3 * CHUNK_SIZE).unwrap();
+    assert!(
+        reader.buffer.cap() <= 3 * CHUNK_SIZE,
+        "case 5: cap={} exceeded max_capacity={}",
+        reader.buffer.cap(),
+        3 * CHUNK_SIZE,
+    );
+
+    // Case 6: chained fills in mixed-size increments up to the cap.
+    let mut reader = DynBufReader::builder(Cursor::new(src.clone()))
+        .max_capacity(max_cap)
+        .build();
+    for step in [1usize, CHUNK_SIZE - 1, CHUNK_SIZE + 5, 1, 42] {
+        let room = max_cap - reader.buffer.len();
+        if step > room {
+            break;
+        }
+        reader.fill_exact(step).unwrap();
+        assert!(
+            reader.buffer.cap() <= max_cap,
+            "case 6 step={step}: cap={} exceeded max_capacity={}",
+            reader.buffer.cap(),
+            max_cap,
+        );
+    }
+    let remainder = max_cap - reader.buffer.len();
+    reader.fill_amount(remainder).unwrap();
+    assert_eq!(reader.buffer.len(), max_cap);
+    assert!(
+        reader.buffer.cap() <= max_cap,
+        "case 6 final: cap={} exceeded max_capacity={}",
+        reader.buffer.cap(),
+        max_cap,
+    );
 }
